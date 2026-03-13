@@ -1,0 +1,6 @@
+# python artifacts
+.venv
+__pycache__
+
+# private configuration files
+_*.config
