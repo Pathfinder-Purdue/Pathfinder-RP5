@@ -21,7 +21,7 @@ class LatestQueue:
                 self._q.get_nowait()  # discard stale
             except queue.Empty:  # if another process got there first, just ignore
                 pass
-            self._q.put_nowait(item)
+            self._q.put(item)  # blocking to avoid race condition between last empty check, very rare
 
     def get(self, block=True, timeout=None):
         """Standard get (blocking or non-blocking)."""

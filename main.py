@@ -10,7 +10,7 @@ import motor_strengths as ms
 
 # dummy speed values for testing
 LIDAR_HZ = 100
-CV_HZ = 10
+CV_HZ = 5
 ESP32_RECV_HZ = 15
 ESP32_SEND_HZ = 15
 FORCED_MIN_FUSION_HZ = 10  # if we don't get data from all sensors at least this fast, we'll calculate motor strengths with whatever data we have to avoid waiting
@@ -67,7 +67,7 @@ def send_esp32(esp32_outgoing_data: LatestQueue):
         # send data to ESP32
         if not esp32_outgoing_data.empty():
             data_to_send = esp32_outgoing_data.get()
-            print(f"Sending to ESP32 [{i}]: {data_to_send}")
+            print(f"Sending to ESP32 [{i}]: {data_to_send}", flush=True)
             i += 1
         time.sleep(1 / ESP32_SEND_HZ)
 
@@ -125,7 +125,7 @@ def dummy_output_to_terminal(motor_strengths: LatestQueue):
     while True:
         if not motor_strengths.empty():
             motor_strength = motor_strengths.get()
-            print(f"Calculated motor strength: {motor_strength}")
+            print(f"> {motor_strength}", flush=True)
 
 
 if __name__ == "__main__":
@@ -161,13 +161,19 @@ if __name__ == "__main__":
     for process in processes:
         process.start()
 
-    print("All processes started.")
+    print("All processes started.", flush=True)
+    print(f"LiDAR updates at {LIDAR_HZ} Hz, CV updates at {CV_HZ} Hz, ESP32 recv at {ESP32_RECV_HZ} Hz, ESP32 send at {ESP32_SEND_HZ} Hz, forced fusion at {FORCED_MIN_FUSION_HZ} Hz.", flush=True)
 
     start = time.time()
-    while True:
-        print("Uptime:", time.time() - start)
+    while time.time() - start < 10:  # run for 10 seconds then exit
+        print("Uptime:", time.time() - start, flush=True)
         while not motor_strengths.empty():
             motor_strength = motor_strengths.get()
-            print(f"Calculated motor strength: {motor_strength}")
+            print(f"Calculated motor strength: {motor_strength}", flush=True)
             esp32_outgoing_data.put(motor_strength)
         time.sleep(1)
+
+    for process in processes:
+        process.terminate()
+    
+    print("All processes terminated.", flush=True)
