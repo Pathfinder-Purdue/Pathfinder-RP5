@@ -1,6 +1,6 @@
 import multiprocessing as mp
 import time
-from concurrency.latest_queue import LatestQueue
+from utils.latest_queue import LatestQueue
 
 # Our modules
 import computer_vision as cv
@@ -162,7 +162,10 @@ if __name__ == "__main__":
         process.start()
 
     print("All processes started.", flush=True)
-    print(f"LiDAR updates at {LIDAR_HZ} Hz, CV updates at {CV_HZ} Hz, ESP32 recv at {ESP32_RECV_HZ} Hz, ESP32 send at {ESP32_SEND_HZ} Hz, forced fusion at {FORCED_MIN_FUSION_HZ} Hz.", flush=True)
+    print(
+        f"LiDAR updates at {LIDAR_HZ} Hz, CV updates at {CV_HZ} Hz, ESP32 recv at {ESP32_RECV_HZ} Hz, ESP32 send at {ESP32_SEND_HZ} Hz, forced fusion at {FORCED_MIN_FUSION_HZ} Hz.",
+        flush=True,
+    )
 
     start = time.time()
     while time.time() - start < 10:  # run for 10 seconds then exit
@@ -175,5 +178,5 @@ if __name__ == "__main__":
 
     for process in processes:
         process.terminate()
-    
+
     print("All processes terminated.", flush=True)
