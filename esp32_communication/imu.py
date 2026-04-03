@@ -2,7 +2,7 @@ import time
 from utils.latest_queue import LatestQueue
 
 
-CALIBRATION_DURATION = 1  # seconds to gather calibration data for
+IMU_CALIBRATION_DURATION = 1  # seconds to gather calibration data for
 TOF_VALID_PITCH_RANGE = (
     -20,
     20,
@@ -85,7 +85,7 @@ def _gather_calibration_data(imu_data: LatestQueue) -> ImuData:
     yaw_sum = 0.0
     count = 0
 
-    while time.time() - start_time < CALIBRATION_DURATION:
+    while time.time() - start_time < IMU_CALIBRATION_DURATION:
         if not imu_data.empty():
             raw_data = imu_data.get()
             clean_data = _clean_imu_data(raw_data)
@@ -96,6 +96,8 @@ def _gather_calibration_data(imu_data: LatestQueue) -> ImuData:
 
     if count == 0:
         return ImuData(0.0, 0.0, 0.0)  # default calibration if no data was gathered
+
+    # Average the calibration data
     return ImuData(pitch_sum / count, roll_sum / count, yaw_sum / count)
 
 
