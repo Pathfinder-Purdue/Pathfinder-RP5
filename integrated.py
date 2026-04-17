@@ -17,6 +17,7 @@ from indoor_nav.models import load_yolo, load_midas, run_yolo, run_midas
 from indoor_nav.sensors import (
     ESP32Reader, read_tof_ground_risk, read_imu,
     init_lidar, stop_lidar, read_lidar_sectors,
+    calibrate_posture,
 )
 from indoor_nav.detection import normalize_depth, midas_sector_risks, scored_yolo_obstacles
 from indoor_nav.risk_engine import fuse_sector_risks, RiskSmoother
@@ -220,6 +221,14 @@ def main():
     speaker.start()
     last_spoken_command = None
 
+    # Posture calibration (IMU-based, required for ToF ground detection)
+    print("[integrated] Running posture calibration ...")
+    calibration = calibrate_posture(speaker, esp32)
+    if calibration is not None:
+        print(f"[integrated] Calibration baseline: {calibration}")
+    else:
+        print("[integrated] WARNING -- calibration failed, using defaults")
+
     fps_buf = deque(maxlen=30)
     t_prev  = time.time()
 
@@ -377,8 +386,7 @@ def main():
 
         # Visualization
         vis = frame.copy()
-        draw_depth_overlay(vis, depth_map, alpha=0.25)
-        draw_yolo_boxes(vis, yolo_results, yolo_obstacles)
+        draw_yolo_boxes(vis, yolo_results, yolo_obstacles, depth_normed=depth_normed)
         _draw_lidar_status(vis, lidar_5, hz_lidar.hz)
         _draw_esp32_status(vis, tof_risks, imu_data, gps_data,
                            hz_tof.hz, hz_imu.hz, hz_gps.hz)

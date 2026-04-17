@@ -84,5 +84,15 @@ ESP32_PORT = "/dev/ttyAMA0"
 ESP32_BAUD = 115200
 
 
+#  POSTURE CALIBRATION (IMU-based, runs at startup)
+# The backpack must be roughly upright for ToF ground detection to work.
+# IMU accel Z should dominate when upright; pitch/roll derived from accel.
+USE_DUMMY_IMU               = True   # ← set to False when real ESP32 IMU is connected
+CALIBRATION_PITCH_TOLERANCE = 15.0   # degrees — max forward/backward tilt
+CALIBRATION_ROLL_TOLERANCE  = 10.0   # degrees — max side tilt
+CALIBRATION_HOLD_SECS       = 2.0    # user must hold good posture this long
+CALIBRATION_POLL_HZ         = 10     # how often to sample IMU during calibration
+
+
 #  TELEMETRY PANEL (visual display)
 PANEL_HEIGHT = 160

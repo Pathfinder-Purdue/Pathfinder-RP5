@@ -37,13 +37,27 @@ def command_color(command):
     return GREEN
 
 
-def draw_yolo_boxes(frame, yolo_results, yolo_obstacles):
-    """Draw YOLO boxes on frame. Obstacles get color-coded, everything else is grey."""
+def _midas_depth_color(prox):
+    """Red (close) -> Yellow (moderate) -> Green (far) based on MiDaS proximity 0-1."""
+    prox = max(0.0, min(1.0, prox))
+    if prox > 0.75:
+        # close: red
+        return (0, 60, 255)
+    elif prox > 0.45:
+        # moderate: yellow  (interpolate red -> yellow)
+        t = (prox - 0.45) / 0.3
+        return (0, int(200 - t * 140), int(255 - t * 0))
+    else:
+        # far: green
+        return (0, 230, 115)
+
+
+def draw_yolo_boxes(frame, yolo_results, yolo_obstacles, depth_normed=None):
+    """Draw YOLO boxes colored by MiDaS depth (red=close, yellow=moderate, green=far)."""
     if yolo_results is None:
         return
 
-    # quick lookup for which boxes are obstacles
-    obstacle_prox = {id(box): prox for _, prox, box in yolo_obstacles}
+    from indoor_nav.detection import box_proximity
 
     for box in yolo_results.boxes:
         x1, y1, x2, y2 = map(int, box.xyxy[0].tolist())
@@ -51,15 +65,10 @@ def draw_yolo_boxes(frame, yolo_results, yolo_obstacles):
         conf = float(box.conf[0])
         label = yolo_results.names[cls_id]
 
-        if id(box) in obstacle_prox:
-            prox = obstacle_prox[id(box)]
-            color = proximity_color(prox)
-            thickness = 2
-            tag = f"{label} {conf:.0%} [{prox:.0%}]"
-        else:
-            color = GREY_DIM
-            thickness = 1
-            tag = f"{label} {conf:.0%}"
+        prox = box_proximity(box, depth_normed)
+        color = _midas_depth_color(prox)
+        thickness = 2
+        tag = f"YOLO: {label}, Confidence: {conf:.0%} | MiDaS: {prox:.0%}"
 
         cv2.rectangle(frame, (x1, y1), (x2, y2), color, thickness)
         cv2.putText(frame, tag, (x1, y1 - 6),

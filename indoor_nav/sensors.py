@@ -4,6 +4,7 @@ LiDAR is managed as a persistent instance — call init_lidar() once at startup.
 ESP32Reader runs a background UART thread to receive ToF / IMU / GPS packets.
 """
 
+import math
 import time
 import threading
 
@@ -13,6 +14,9 @@ from indoor_nav.config import (
     DIST_NEAR_M, DIST_FAR_M,
     TOF_NOISE_FLOOR_MM, TOF_CLOSE_MM, TOF_FAR_MM,
     ESP32_PORT, ESP32_BAUD,
+    USE_DUMMY_IMU,
+    CALIBRATION_PITCH_TOLERANCE, CALIBRATION_ROLL_TOLERANCE,
+    CALIBRATION_HOLD_SECS, CALIBRATION_POLL_HZ,
 )
 
 try:
@@ -296,3 +300,115 @@ def distance_to_risk(dist_m, near_m=DIST_NEAR_M, far_m=DIST_FAR_M):
     if dist_m is None:
         return 0.0
     return float(np.clip(1.0 - (dist_m - near_m) / (far_m - near_m), 0.0, 1.0))
+
+
+# ── Posture Calibration ───────────────────────────────────────────────
+
+def _accel_to_pitch_roll(ax, ay, az):
+    """Derive pitch and roll (degrees) from raw accelerometer readings.
+
+    Assumes sensor is mounted on a backpack with Z pointing up when upright.
+    """
+    # avoid division by zero
+    g = math.sqrt(ax * ax + ay * ay + az * az) or 1.0
+    pitch = math.degrees(math.asin(max(-1.0, min(1.0, ax / g))))
+    roll  = math.degrees(math.asin(max(-1.0, min(1.0, ay / g))))
+    return pitch, roll
+
+
+def _dummy_imu_sequence():
+    """Generate a dummy IMU calibration sequence for development.
+
+    Simulates: bad posture for ~1.5 s, then good posture.
+    Returns an iterator of (ax, ay, az, gx, gy, gz) tuples.
+    """
+    # Phase 1: tilted forward (bad posture) — ~15 samples at 10 Hz = 1.5 s
+    for _ in range(15):
+        yield (3.0, 1.5, 8.5, 0.0, 0.0, 0.0)   # pitched forward ~20°
+    # Phase 2: upright (good posture)
+    while True:
+        yield (0.2, 0.1, 9.78, 0.0, 0.0, 0.0)   # nearly perfect upright
+
+
+class CalibrationResult:
+    """Stores the baseline IMU orientation from the calibration phase."""
+    __slots__ = ('baseline_pitch', 'baseline_roll', 'baseline_az')
+
+    def __init__(self, pitch, roll, az):
+        self.baseline_pitch = pitch
+        self.baseline_roll = roll
+        self.baseline_az = az
+
+    def __repr__(self):
+        return (f"CalibrationResult(pitch={self.baseline_pitch:+.1f}°, "
+                f"roll={self.baseline_roll:+.1f}°, az={self.baseline_az:.2f})")
+
+
+def calibrate_posture(speaker, esp32=None):
+    """Run the startup posture calibration loop.
+
+    Uses real ESP32 IMU data if available, otherwise falls back to dummy data.
+    Returns a CalibrationResult with the baseline orientation, or None on failure.
+    """
+    poll_interval = 1.0 / CALIBRATION_POLL_HZ
+
+    # Announce calibration start
+    print("[calibration] Starting posture calibration ...")
+    speaker.say("Calibrating")
+    time.sleep(1.5)  # let the TTS finish before polling
+
+    use_dummy = USE_DUMMY_IMU or esp32 is None or esp32.imu is None
+    dummy_iter = _dummy_imu_sequence() if use_dummy else None
+    if use_dummy:
+        print("[calibration] No live IMU — using dummy data")
+
+    good_start = None          # timestamp when posture first became acceptable
+    prompted_straighten = False
+    last_good_imu = None
+
+    while True:
+        # Read IMU
+        if use_dummy:
+            imu = list(next(dummy_iter))
+        else:
+            imu = esp32.imu
+
+        if imu is None or len(imu) < 6:
+            time.sleep(poll_interval)
+            continue
+
+        ax, ay, az = imu[0], imu[1], imu[2]
+        pitch, roll = _accel_to_pitch_roll(ax, ay, az)
+
+        posture_ok = (abs(pitch) <= CALIBRATION_PITCH_TOLERANCE and
+                      abs(roll) <= CALIBRATION_ROLL_TOLERANCE)
+
+        if posture_ok:
+            if good_start is None:
+                good_start = time.time()
+                print(f"[calibration] Good posture detected (pitch={pitch:+.1f}° roll={roll:+.1f}°)")
+            last_good_imu = imu
+
+            # Check if held long enough
+            held = time.time() - good_start
+            if held >= CALIBRATION_HOLD_SECS:
+                # Calibration complete
+                result = CalibrationResult(pitch, roll, az)
+                print(f"[calibration] Complete: {result}")
+                speaker.say("Calibration complete")
+                time.sleep(1.0)  # let TTS finish
+                return result
+        else:
+            # Posture lost — reset timer
+            good_start = None
+            if not prompted_straighten:
+                print(f"[calibration] Bad posture (pitch={pitch:+.1f}° roll={roll:+.1f}°)")
+                speaker.say("Straighten posture for calibration")
+                prompted_straighten = True
+                time.sleep(1.5)  # let TTS finish before resuming
+            else:
+                # Re-prompt periodically if still bad
+                speaker.say("Straighten posture for calibration")
+                time.sleep(1.5)
+
+        time.sleep(poll_interval)
