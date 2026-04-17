@@ -7,6 +7,64 @@ import threading
 import time
 
 
+# ── Slew-rate limiter ──────────────────────────────────────────────────
+
+# Maximum change in motor value (0-100) allowed per second.
+# At ~10 Hz updates this is ~25 per tick → 0→100 in ~0.4 s (responsive
+# but no instantaneous current spike).
+MAX_MOTOR_SLEW_RATE = 250          # units per second
+DEFAULT_NUM_ZONES   = 3
+
+
+class HapticOutputLimiter:
+    """Rate-limits motor value changes to protect hardware.
+
+    Each call to ``limit()`` returns adjusted motor values whose per-step
+    change is bounded by *MAX_MOTOR_SLEW_RATE × dt* so that even if the
+    raw input jumps from 0 → 100 the actual output ramps up smoothly.
+
+    The limiter is **time-based** so it adapts to varying loop rates.
+    """
+
+    def __init__(self, num_zones: int = DEFAULT_NUM_ZONES,
+                 max_slew: float = MAX_MOTOR_SLEW_RATE):
+        self._prev = [0.0] * num_zones
+        self._last_t = None
+        self._max_slew = max_slew          # units / second
+
+    def limit(self, raw: list[float]) -> list[int]:
+        """Apply slew-rate limiting and return safe integer motor values.
+
+        Args:
+            raw: desired motor values in 0-100 range (one per zone).
+
+        Returns:
+            list[int]: clamped, slew-limited motor values 0-100.
+        """
+        now = time.monotonic()
+        if self._last_t is None:
+            # First call — accept values directly (no spike on boot)
+            dt = 0.0
+        else:
+            dt = now - self._last_t
+        self._last_t = now
+
+        max_step = self._max_slew * dt      # allowed change this tick
+
+        out = []
+        for i, target in enumerate(raw):
+            target = max(0.0, min(100.0, target))   # hard clamp
+            prev = self._prev[i]
+            delta = target - prev
+            if abs(delta) > max_step and max_step > 0:
+                target = prev + max_step * (1 if delta > 0 else -1)
+            target = max(0.0, min(100.0, target))
+            out.append(int(round(target)))
+            self._prev[i] = target
+
+        return out
+
+
 class LidarData:
     """
     Container for LIDAR scan results.
@@ -52,9 +110,9 @@ def get_haptic_zones(lidar_data, max_distance=3000.0, full_blast_threshold=1500.
     
     Returns:
         dict: {
-            'left': vibration intensity (0.0-1.0),
-            'center': vibration intensity (0.0-1.0),
-            'right': vibration intensity (0.0-1.0),
+            'left': vibration intensity (0-100),
+            'center': vibration intensity (0-100),
+            'right': vibration intensity (0-100),
             'left_distance': closest distance in left zone (mm) or None,
             'center_distance': closest distance in center zone (mm) or None,
             'right_distance': closest distance in right zone (mm) or None
@@ -67,7 +125,7 @@ def get_haptic_zones(lidar_data, max_distance=3000.0, full_blast_threshold=1500.
     
     Vibration formula (quadratic ramp):
         x = clamp((max_distance - distance) / (max_distance - full_blast_threshold), 0, 1)
-        vibration = x^2
+        vibration = x^2 * 100
     """
     
     def normalize_angle(angle):
@@ -86,7 +144,7 @@ def get_haptic_zones(lidar_data, max_distance=3000.0, full_blast_threshold=1500.
             return angle >= start or angle <= end
     
     def distance_to_vibration(distance_mm, max_dist, threshold):
-        """Convert distance in mm to vibration intensity (0-1) using quadratic ramp."""
+        """Convert distance in mm to vibration intensity (0-100) using quadratic ramp."""
         if distance_mm is None:
             return 0.0
         
@@ -98,8 +156,8 @@ def get_haptic_zones(lidar_data, max_distance=3000.0, full_blast_threshold=1500.
         x = (max_dist_m - distance_m) / (max_dist_m - threshold_m)
         x = max(0.0, min(1.0, x))
         
-        # Apply quadratic function
-        vibration = x ** 2
+        # Apply quadratic function, scale to 0-100
+        vibration = (x ** 2) * 100.0
         return vibration
     
     # Define the three 40-degree zones
@@ -124,4 +182,58 @@ def get_haptic_zones(lidar_data, max_distance=3000.0, full_blast_threshold=1500.
         result[zone_name] = vibration
         result[f'{zone_name}_distance'] = closest_distance
     
+    return result
+
+
+def get_haptic_zones_5(lidar_data, max_distance=3000.0, full_blast_threshold=1500.0):
+    """Split 120-degree front FOV into 5 zones: far_left, left, center, right, far_right.
+
+    FL and FR cover the extra ~17.5 degrees on each side beyond the camera FOV.
+    Zone layout (forward = 0 degrees):
+        far_left:  300-320   (20 degrees, LiDAR-only)
+        left:      320-340   (20 degrees)
+        center:    340-20    (40 degrees, wraps around 0)
+        right:     20-40     (20 degrees)
+        far_right: 40-60     (20 degrees, LiDAR-only)
+    """
+
+    def normalize_angle(angle):
+        return angle % 360.0
+
+    def angle_in_range(angle, start, end):
+        angle = normalize_angle(angle)
+        start = normalize_angle(start)
+        end = normalize_angle(end)
+        if start <= end:
+            return start <= angle <= end
+        else:
+            return angle >= start or angle <= end
+
+    def distance_to_vibration(distance_mm):
+        if distance_mm is None:
+            return 0.0
+        max_m = max_distance / 1000.0
+        thresh_m = full_blast_threshold / 1000.0
+        x = (max_m - distance_mm / 1000.0) / (max_m - thresh_m)
+        x = max(0.0, min(1.0, x))
+        return (x ** 2) * 100.0
+
+    zones = {
+        'far_left':  (300, 320),
+        'left':      (320, 340),
+        'center':    (340, 20),
+        'right':     (20, 40),
+        'far_right': (40, 60),
+    }
+
+    result = {}
+    for zone_name, (start, end) in zones.items():
+        closest_distance = None
+        for angle, (distance, quality) in lidar_data.items():
+            if angle_in_range(angle, start, end) and distance is not None:
+                if closest_distance is None or distance < closest_distance:
+                    closest_distance = distance
+        result[zone_name] = distance_to_vibration(closest_distance)
+        result[f'{zone_name}_distance'] = closest_distance
+
     return result

@@ -64,6 +64,58 @@ def get_latest_reads():
         return dict(_latest_reads)
 
 
+def _try_reconnect():
+    """Attempt to close and reopen the LiDAR serial connection."""
+    global _lidar
+    if _lidar is None:
+        return False
+    port = _lidar._serial.port
+    baud = _lidar._serial.baudrate
+    # close the dead handle
+    try:
+        _lidar._serial.close()
+    except Exception:
+        pass
+
+    # rebind the USB device (CP210x vendor 10c4)
+    try:
+        import glob, subprocess, os
+        for dev_path in glob.glob("/sys/bus/usb/devices/[0-9]*"):
+            vid_file = os.path.join(dev_path, "idVendor")
+            try:
+                with open(vid_file) as f:
+                    if f.read().strip() != "10c4":
+                        continue
+            except (FileNotFoundError, PermissionError):
+                continue
+            usb_id = os.path.basename(dev_path)
+            logger.info("Rebinding USB device %s for LiDAR", usb_id)
+            subprocess.run(["sudo", "tee", "/sys/bus/usb/drivers/usb/unbind"],
+                           input=usb_id.encode(), capture_output=True, timeout=5)
+            time.sleep(1.0)
+            subprocess.run(["sudo", "tee", "/sys/bus/usb/drivers/usb/bind"],
+                           input=usb_id.encode(), capture_output=True, timeout=5)
+            time.sleep(2.0)
+            break
+    except Exception:
+        logger.exception("USB rebind failed")
+
+    # find the new port (may have re-enumerated)
+    import glob as _glob
+    new_ports = sorted(_glob.glob("/dev/ttyUSB*"))
+    new_port = new_ports[0] if new_ports else port
+    logger.info("Reconnecting LiDAR on %s", new_port)
+
+    for attempt in range(3):
+        try:
+            _lidar = RPLidar(new_port, baud)
+            return True
+        except Exception as e:
+            logger.warning("LiDAR reconnect attempt %d failed: %s", attempt + 1, e)
+            time.sleep(1.0)
+    return False
+
+
 def _scanner_worker():
     """Background thread: sends scan command and continuously reads/parses packets."""
     global _lidar, _stop_event, _latest_reads
@@ -82,12 +134,16 @@ def _scanner_worker():
         byte_error_handling = False
         data_out_buffer = bytes()
         logger.info("Background scanner started")
+        io_error_count = 0
+        max_io_errors = 5
 
         while not _stop_event.is_set():
             try:
                 if _lidar._serial.in_waiting < 5:
                     time.sleep(0.05)
                     continue
+
+                io_error_count = 0  # reset on successful I/O
 
                 if not byte_error_handling:
                     data_out_buffer = _lidar._serial.read(length)
@@ -110,6 +166,28 @@ def _scanner_worker():
 
                 with _latest_lock:
                     _latest_reads[angle] = (distance, quality)
+
+            except OSError as e:
+                io_error_count += 1
+                if io_error_count >= max_io_errors:
+                    logger.error("Serial I/O failed %d times, attempting reconnect …",
+                                 io_error_count)
+                    if _try_reconnect():
+                        # Re-send scan command after reconnect
+                        try:
+                            Request.send_request(_lidar._serial, scan_request)
+                            _length, _mode = Response.parse_response_descriptor(
+                                _lidar._serial)
+                            io_error_count = 0
+                            byte_error_handling = False
+                            data_out_buffer = bytes()
+                            logger.info("LiDAR reconnected successfully")
+                            continue
+                        except Exception:
+                            logger.exception("Failed to restart scan after reconnect")
+                    logger.error("LiDAR reconnect failed, giving up")
+                    return
+                time.sleep(0.5)
 
             except Exception:
                 logger.exception("Error in scanner loop — retrying after short delay")

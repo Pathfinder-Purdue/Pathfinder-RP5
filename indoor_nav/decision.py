@@ -1,14 +1,25 @@
-"""FSM that turns sector risk into nav commands: GO, SLOW, VEER LEFT, VEER RIGHT, STOP."""
+"""Decision engine: fused sector risks + ToF ground check + LiDAR flank check.
+
+Pipeline:
+  1. Score three candidate directions (LEFT, FORWARD, RIGHT) from fused [L,C,R] risks.
+  2. Sort safest-first and iterate candidates.
+  3. For each candidate, validate:
+     a. ToF ground-level clearance in that direction.
+     b. LiDAR flank clearance (FL for LEFT, FR for RIGHT).
+  4. First candidate that passes both checks becomes the command.
+  5. If no direction passes -> STOP.
+"""
 
 import time
 from dataclasses import dataclass
 
 from indoor_nav.config import (
     STOP_THRESHOLD,
-    AVOID_THRESHOLD,
     CAUTION_THRESHOLD,
     HYSTERESIS,
     MIN_DWELL_MS,
+    TOF_VETO_RISK,
+    LIDAR_FLANK_SAFE,
 )
 
 
@@ -20,72 +31,110 @@ class Decision:
     explanation: str    # why this command was picked
 
 
-# maps FSM state to (command string, explanation)
 STATE_COMMANDS = {
     "CRUISE":      ("GO",         "Path is clear"),
     "CAUTION":     ("SLOW",       "Obstacle nearby - proceed with caution"),
     "AVOID_LEFT":  ("VEER LEFT",  "Safer to veer left"),
     "AVOID_RIGHT": ("VEER RIGHT", "Safer to veer right"),
-    "STOPPED":     ("STOP",       "Obstacle dead ahead — stop"),
+    "STOPPED":     ("STOP",       "No safe direction found"),
 }
 
 
 class NavigationFSM:
-    """Five-state FSM with hysteresis and dwell-time gating."""
+    """Directional FSM with ToF ground and LiDAR flank validation."""
 
     def __init__(self):
         self.state = "CRUISE"
         self._last_change_time = 0.0
 
-    def update(self, risks):
-        """Feed new [L, C, R] risks, returns a Decision."""
-        candidate = self._evaluate_candidate(risks)
+    def update(self, risks, lidar_flanks=None, tof_risks=None):
+        """Feed [L,C,R] fused risks, optional [FL,FR] flanks, optional [L,R] ToF ground.
+
+        Returns a Decision.
+        """
+        candidate = self._pick_direction(risks, lidar_flanks, tof_risks)
         self._apply_with_dwell_gate(candidate)
         return self._build_decision(risks)
 
-    def _evaluate_candidate(self, risks):
-        """Figure out what state we should be in right now."""
+    # -- direction selection --
+
+    def _pick_direction(self, risks, lidar_flanks, tof_risks):
+        """Score LEFT / FORWARD / RIGHT, validate, return best FSM state."""
         left, center, right = risks
-        peak_risk = max(risks)
 
-        # thresholds shift down if we're already in that state (hysteresis)
-        stop_thresh    = self._effective_threshold("STOPPED",  STOP_THRESHOLD)
-        avoid_thresh   = self._effective_threshold("AVOID",    AVOID_THRESHOLD)
-        caution_thresh = self._effective_threshold("CAUTION",  CAUTION_THRESHOLD)
+        # candidate directions sorted safest-first
+        candidates = [
+            ("AVOID_LEFT",  left),
+            ("CRUISE",      center),
+            ("AVOID_RIGHT", right),
+        ]
+        candidates.sort(key=lambda x: x[1])
 
-        # check top-down by severity
-        if center >= stop_thresh:
-            return "STOPPED"
+        for state, risk in candidates:
+            # too dangerous in this direction
+            if risk >= self._eff_threshold("STOPPED", STOP_THRESHOLD):
+                continue
 
-        if center >= avoid_thresh:
-            # steer toward whichever side has less risk
-            return "AVOID_LEFT" if left < right else "AVOID_RIGHT"
+            # ToF ground validation
+            if not self._tof_clear(state, tof_risks):
+                continue
 
-        if peak_risk >= caution_thresh:
-            return "CAUTION"
+            # LiDAR flank validation
+            if not self._flank_clear(state, lidar_flanks):
+                continue
 
-        return "CRUISE"
+            # direction is viable
+            if state == "CRUISE":
+                if risk >= self._eff_threshold("CAUTION", CAUTION_THRESHOLD):
+                    return "CAUTION"
+                return "CRUISE"
+            return state
 
-    def _effective_threshold(self, state_prefix, base_threshold):
-        """Lower threshold by HYSTERESIS if we're already in this state."""
+        return "STOPPED"
+
+    # -- validation helpers --
+
+    def _tof_clear(self, direction, tof_risks):
+        """Check ToF ground risk is below veto threshold in chosen direction."""
+        if tof_risks is None:
+            return True
+        if direction == "AVOID_LEFT":
+            return tof_risks[0] < TOF_VETO_RISK
+        if direction == "AVOID_RIGHT":
+            return tof_risks[1] < TOF_VETO_RISK
+        # forward: both sides must be clear
+        return tof_risks[0] < TOF_VETO_RISK and tof_risks[1] < TOF_VETO_RISK
+
+    def _flank_clear(self, direction, lidar_flanks):
+        """Check LiDAR flank is safe before veering that way."""
+        if lidar_flanks is None:
+            return True
+        if direction == "AVOID_LEFT":
+            return lidar_flanks[0] < LIDAR_FLANK_SAFE
+        if direction == "AVOID_RIGHT":
+            return lidar_flanks[1] < LIDAR_FLANK_SAFE
+        return True  # forward doesn't need flank check
+
+    # -- thresholds / state machine --
+
+    def _eff_threshold(self, state_prefix, base):
+        """Lower threshold by HYSTERESIS if already in this state."""
         if self.state.startswith(state_prefix):
-            return base_threshold - HYSTERESIS
-        return base_threshold
+            return base - HYSTERESIS
+        return base
 
     def _apply_with_dwell_gate(self, candidate):
-        """Only allow state change if dwell time has passed. STOP always goes through."""
+        """Block rapid state changes unless STOP (always immediate)."""
         if candidate == self.state:
             return
-
         now = time.time()
         elapsed_ms = (now - self._last_change_time) * 1000
-
         if candidate == "STOPPED" or elapsed_ms >= MIN_DWELL_MS:
             self.state = candidate
             self._last_change_time = now
 
     def _build_decision(self, risks):
-        """Turn current state into a Decision."""
+        """Turn current FSM state into a Decision."""
         command, explanation = STATE_COMMANDS[self.state]
         urgency = max(risks)
         return Decision(command, urgency, explanation)

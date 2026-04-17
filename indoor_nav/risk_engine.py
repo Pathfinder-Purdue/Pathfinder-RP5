@@ -20,7 +20,7 @@ def fuse_sector_risks(
         sources.append((W_MIDAS, midas_risks[i]))
 
         if lidar_sectors is not None:
-            sources.append((W_LIDAR, distance_to_risk(lidar_sectors[i])))
+            sources.append((W_LIDAR, lidar_sectors[i]))  # already 0–1 risk
 
         if tof_sectors is not None:
             sources.append((W_TOF, distance_to_risk(tof_sectors[i])))

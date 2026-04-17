@@ -18,12 +18,14 @@ FONT        = cv2.FONT_HERSHEY_SIMPLEX
 
 
 def proximity_color(prox):
-    """Red if close, amber if mid, green if far."""
-    if prox >= PROX_NEAR:
-        return RED
-    if prox >= PROX_MID:
-        return ACCENT
-    return GREEN
+    """Smooth green -> yellow -> red gradient based on proximity 0-1."""
+    prox = max(0.0, min(1.0, prox))
+    if prox < 0.5:
+        t = prox * 2.0
+        return (0, 230, int(115 + t * 115))
+    else:
+        t = (prox - 0.5) * 2.0
+        return (0, int(230 - t * 170), int(230 + t * 25))
 
 
 def command_color(command):
@@ -100,26 +102,26 @@ def _draw_state_column(panel, decision, fsm_state, x):
 
 
 def _draw_risk_bars(panel, risks, x):
-    """Middle column: L/C/R risk bars."""
+    """Middle column: FL/L/C/R/FR risk bars."""
     cv2.putText(panel, "SECTOR RISK", (x, 22),
                 FONT, 0.45, ACCENT, 1, cv2.LINE_AA)
 
-    labels  = ["L", "C", "R"]
-    max_bar = 180
+    labels  = ["FL", "L", "C", "R", "FR"]
+    max_bar = 150
 
     for idx, (label, value) in enumerate(zip(labels, risks)):
-        y = 42 + idx * 32
+        y = 38 + idx * 24
         bar_w = int(value * max_bar)
-        bar_color = RED if value > 0.7 else (ACCENT if value > 0.4 else GREEN)
+        bar_color = proximity_color(value)
 
-        cv2.putText(panel, label, (x, y + 14),
-                    FONT, 0.50, WHITE, 1, cv2.LINE_AA)
-        cv2.rectangle(panel, (x + 28, y), (x + 28 + bar_w, y + 20),
+        cv2.putText(panel, label, (x, y + 12),
+                    FONT, 0.42, WHITE, 1, cv2.LINE_AA)
+        cv2.rectangle(panel, (x + 28, y), (x + 28 + bar_w, y + 16),
                       bar_color, -1)
-        cv2.rectangle(panel, (x + 28, y), (x + 28 + max_bar, y + 20),
+        cv2.rectangle(panel, (x + 28, y), (x + 28 + max_bar, y + 16),
                       GREY_BORDER, 1)
-        cv2.putText(panel, f"{value:.0%}", (x + 215, y + 15),
-                    FONT, 0.40, WHITE, 1, cv2.LINE_AA)
+        cv2.putText(panel, f"{value:.0%}", (x + 185, y + 13),
+                    FONT, 0.36, WHITE, 1, cv2.LINE_AA)
 
 
 def _draw_nav_cue(panel, decision, fps, x):

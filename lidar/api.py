@@ -1,15 +1,33 @@
 import lidar.backend as backend
-
-import lidar.backend as backend
 import threading
 import time
+import glob
 
-try:
-    with open("lidar/_lidar.config", "r") as f:
-        LIDAR_PORT = f.read().strip()
-except FileNotFoundError:
-    LIDAR_PORT = "/dev/ttyUSB0"
 
+def _find_lidar_port():
+    """Auto-detect the LiDAR serial port (CP210x USB-UART bridge)."""
+    # 1. Config file override
+    try:
+        with open("lidar/_lidar.config", "r") as f:
+            port = f.read().strip()
+            if port:
+                return port
+    except FileNotFoundError:
+        pass
+
+    # 2. Look for CP210x by-id symlink (stable across re-enumeration)
+    for link in sorted(glob.glob("/dev/serial/by-id/*CP210x*")):
+        return link
+
+    # 3. Fallback: first available ttyUSB
+    usb_ports = sorted(glob.glob("/dev/ttyUSB*"))
+    if usb_ports:
+        return usb_ports[0]
+
+    return "/dev/ttyUSB0"
+
+
+LIDAR_PORT = _find_lidar_port()
 LIDAR_BAUDRATE = 460800
 
 class LidarData:

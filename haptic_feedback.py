@@ -1,17 +1,18 @@
-from haptic_zones import get_haptic_zones
+from haptic_zones import get_haptic_zones, HapticOutputLimiter
 import time
 
 
 def haptic_feedback_demo():
     """
     Real-time haptic feedback display for wearable device.
-    Shows normalized vibration intensities for left, center, and right zones at 5Hz.
+    Shows slew-limited vibration intensities (0-100) for left, center, and right zones at 5Hz.
     """
     # Import Lidar from the main repo
     from lidar.api import Lidar
     
     lidar = Lidar()
     lidar.start()
+    limiter = HapticOutputLimiter(num_zones=3)
     
     try:
         while True:
@@ -20,12 +21,11 @@ def haptic_feedback_demo():
             data = lidar.read()
             haptic_data = get_haptic_zones(data)
             
-            left_vib = haptic_data['left']
-            center_vib = haptic_data['center']
-            right_vib = haptic_data['right']
+            raw = [haptic_data['left'], haptic_data['center'], haptic_data['right']]
+            motor_vals = limiter.limit(raw)
             
             # Print simple format
-            print(f"Left: {left_vib:.2f} | Center: {center_vib:.2f} | Right: {right_vib:.2f}")
+            print(f"Left: {motor_vals[0]:3d} | Center: {motor_vals[1]:3d} | Right: {motor_vals[2]:3d}")
             
     except KeyboardInterrupt:
         lidar.stop()

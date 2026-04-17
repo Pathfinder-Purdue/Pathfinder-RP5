@@ -53,7 +53,7 @@ CAUTION_THRESHOLD = 0.35
 
 
 #  SMOOTHING & STABILITY
-EMA_ALPHA    = 0.30    # EMA Constant:  0 = ignore new data, 1 = no smoothing
+EMA_ALPHA    = 0.50    # EMA Constant:  0 = ignore new data, 1 = no smoothing
 MIN_DWELL_MS = 400     # hold a command this long before allowing a change
 HYSTERESIS   = 0.08    # extra margin to leave a triggered state
 
@@ -68,6 +68,20 @@ W_MIDAS = 0.20    # always-on depth estimate (software sensor)
 #  LIDAR / TOF DISTANCE-TO-RISK MAPPING
 DIST_NEAR_M = 0.6     # metres — closer than this is max danger
 DIST_FAR_M  = 2.5     # metres — farther than this is safe
+
+
+#  TOF GROUND-LEVEL OBSTACLE DETECTION  (values in mm)
+TOF_NOISE_FLOOR_MM = 20      # readings below this are sensor noise
+TOF_CLOSE_MM       = 300     # closer than this → max risk
+TOF_FAR_MM         = 1500    # farther than this → safe
+TOF_OVERRIDE_RISK  = 0.90    # if any ToF sector risk >= this, force STOP
+TOF_VETO_RISK      = 0.65    # ToF risk >= this vetoes walking that direction
+LIDAR_FLANK_SAFE   = 0.45    # LiDAR flank risk must be below this to veer that way
+
+
+#  ESP32 UART
+ESP32_PORT = "/dev/ttyAMA0"
+ESP32_BAUD = 115200
 
 
 #  TELEMETRY PANEL (visual display)
