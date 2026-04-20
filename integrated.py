@@ -1,3 +1,4 @@
+import argparse
 import subprocess
 import sys
 import time
@@ -169,6 +170,12 @@ def _draw_pipeline_status(frame, hz_cam, hz_yolo, hz_midas):
 # Main
 
 def main():
+    parser = argparse.ArgumentParser(description="Pathfinder integrated pipeline")
+    parser.add_argument("--viz", action="store_true", help="Enable OpenCV visualization")
+    args = parser.parse_args()
+    if args.viz:
+        print("[integrated] Visualization enabled")
+
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"[integrated] torch device: {device}")
 
@@ -385,35 +392,37 @@ def main():
         risks_5 = [fl, risks[0], risks[1], risks[2], fr]
 
         # Visualization
-        vis = frame.copy()
-        draw_yolo_boxes(vis, yolo_results, yolo_obstacles, depth_normed=depth_normed)
-        _draw_lidar_status(vis, lidar_5, hz_lidar.hz)
-        _draw_esp32_status(vis, tof_risks, imu_data, gps_data,
-                           hz_tof.hz, hz_imu.hz, hz_gps.hz)
-        _draw_pipeline_status(vis, hz_cam.hz, hz_yolo.hz, hz_midas.hz)
+        if args.viz:
+            vis = frame.copy()
+            draw_yolo_boxes(vis, yolo_results, yolo_obstacles, depth_normed=depth_normed)
+            _draw_lidar_status(vis, lidar_5, hz_lidar.hz)
+            _draw_esp32_status(vis, tof_risks, imu_data, gps_data,
+                               hz_tof.hz, hz_imu.hz, hz_gps.hz)
+            _draw_pipeline_status(vis, hz_cam.hz, hz_yolo.hz, hz_midas.hz)
 
-        # FPS
-        t_now = time.time()
-        dt    = t_now - t_prev
-        t_prev = t_now
-        fps_buf.append(1.0 / dt if dt > 0 else 0)
-        avg_fps = sum(fps_buf) / len(fps_buf)
+            # FPS
+            t_now = time.time()
+            dt    = t_now - t_prev
+            t_prev = t_now
+            fps_buf.append(1.0 / dt if dt > 0 else 0)
+            avg_fps = sum(fps_buf) / len(fps_buf)
 
-        telemetry = build_telemetry_panel(FRAME_WIDTH, decision, risks_5,
-                                          fsm.state, avg_fps)
-        display = np.vstack([vis, telemetry])
+            telemetry = build_telemetry_panel(FRAME_WIDTH, decision, risks_5,
+                                              fsm.state, avg_fps)
+            display = np.vstack([vis, telemetry])
 
-        cv2.imshow("Pathfinder - Integrated", display)
-        if cv2.waitKey(1) & 0xFF == ord('q'):
-            stop_event.set()
-            break
+            cv2.imshow("Pathfinder - Integrated", display)
+            if cv2.waitKey(1) & 0xFF == ord('q'):
+                stop_event.set()
+                break
 
     # Cleanup
     stop_event.set()
     t_cap.join(timeout=1.0)
     t_inf.join(timeout=1.0)
     cap.release()
-    cv2.destroyAllWindows()
+    if args.viz:
+        cv2.destroyAllWindows()
     stop_lidar()
     if esp32 is not None:
         esp32.stop()

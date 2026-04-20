@@ -1,9 +1,24 @@
 import serial
+import serial.tools.list_ports
 import threading
 import time
 
-PORT = "/dev/ttyAMA0"   # On Pi 5 with uart0-pi5 this is usually the GPIO UART. GPIO pins 14 (TX) and 15 (RX) are used for this UART. Make sure to connect TX to RX and RX to TX between the Pi and ESP32.
 BAUD = 9600
+
+
+def find_usb_serial_port():
+    """Auto-detect the USB-to-UART converter port."""
+    ports = serial.tools.list_ports.comports()
+    usb_ports = [p for p in ports if "USB" in p.device or "ACM" in p.device]
+    if usb_ports:
+        print("Detected USB serial ports:")
+        for p in usb_ports:
+            print(f"  {p.device} - {p.description}")
+        return usb_ports[0].device
+    # Fallback
+    print("No USB serial port auto-detected, falling back to /dev/ttyUSB0")
+    return "/dev/ttyUSB0"
+
 
 def read_from_esp(ser):
     last_msg_time = time.time()
@@ -14,9 +29,8 @@ def read_from_esp(ser):
                 data = ser.read_until(b'\n')
                 if data:
                     data = data.decode('ascii', errors='replace').strip()
-                    data = data.replace(';', '\n')  # Replace semicolons with newlines for better readability
+                    data = data.replace(';', '\n')
                     print(f"[ESP32 -> Pi] {data}")
-                    # Timing analysis
                     current_time = time.time()
                     if last_msg_time is not None:
                         elapsed = current_time - last_msg_time
@@ -29,27 +43,17 @@ def read_from_esp(ser):
             print(f"Read error: {e}")
             break
 
+
 def write_to_esp(ser):
     num = 0
     while True:
         try:
-            # msg = input("[Pi -> ESP32] Enter message (or '1', '2', ... for examples): ")
-            msg = f"{num},20,30,40,50"  # Example message to send
-            num = (num + 1) % 101  # Increment num for next message
-            time.sleep(0.1)  # Simulate delay between messages
-            # if msg == "1":
-            #     msg = "10,20,30,40,50"
-            #     print(f" > Sending example message: {msg}")
-            # elif msg == "2":
-            #     msg = "0,0,0,0,0"
-            #     print(f" > Sending example message: {msg}")
-            # elif msg == "3":
-            #     msg = "100,100,100,100,100"
-            #     print(f" > Sending example message: {msg}")
-            packet = (msg).encode("ascii")
+            msg = f"{num},{num},{num},{num},{num}"
+            num = (num + 1) % 101
+            time.sleep(0.1)
+            packet = msg.encode("ascii")
             ser.write(packet)
             ser.flush()
-
             print(f"[Pi -> ESP32] Sent: {msg}")
         except serial.SerialException as e:
             print(f"Write error: {e}")
@@ -57,15 +61,17 @@ def write_to_esp(ser):
         except KeyboardInterrupt:
             break
 
+
 def main():
+    port = find_usb_serial_port()
     try:
         ser = serial.Serial(
-            port=PORT,
+            port=port,
             baudrate=BAUD,
             timeout=0.2,
             write_timeout=0.2
         )
-        print(f"Opened {PORT} at {BAUD} baud")
+        print(f"Opened {port} at {BAUD} baud")
 
         reader = threading.Thread(target=read_from_esp, args=(ser,), daemon=True)
         reader.start()
@@ -81,6 +87,7 @@ def main():
             ser.close()
         except:
             pass
+
 
 if __name__ == "__main__":
     main()
