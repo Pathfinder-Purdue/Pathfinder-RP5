@@ -425,7 +425,8 @@ def main():
             fps_buf.append(1.0 / dt if dt > 0 else 0)
             avg_fps = sum(fps_buf) / len(fps_buf)
 
-            telemetry = build_telemetry_panel(FRAME_WIDTH, decision, risks_5,
+            motor_display = [v / 100.0 for v in motor_vals]
+            telemetry = build_telemetry_panel(FRAME_WIDTH, decision, motor_display,
                                               fsm.state, avg_fps)
             display = np.vstack([vis, telemetry])
 
