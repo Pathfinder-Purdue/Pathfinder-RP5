@@ -241,6 +241,10 @@ class ESP32Reader:
             except _serial.SerialException:
                 pass
 
+    def write_motor_values(self, motor_vals: list):
+        """Send 5-zone motor values to the ESP32 as 'v1,v2,v3,v4,v5'."""
+        self.write(','.join(str(int(v)) for v in motor_vals))
+
 
 # ToF ground-level processing
 

@@ -16,16 +16,17 @@ from indoor_nav.config import (
 # Maximum change in motor value (0-100) allowed per second.
 # At ~10 Hz updates this is ~25 per tick → 0→100 in ~0.4 s (responsive
 # but no instantaneous current spike).
-MAX_MOTOR_SLEW_RATE = 250          # units per second
-DEFAULT_NUM_ZONES   = 3
+MAX_MOTOR_SLEW_RATE = 300          # units per second
+NUM_ZONES   = 3
+MAX_ACTIVE_MOTORS = 2
 
 #  HAPTIC MOTOR OUTPUT LIMITS
 # Raw vibration intent is produced in 0-100, then remapped before UART output.
 # 1) [0, MOTOR_INTENSITY_DEADZONE] -> 0 (deadzone)
 # 2) (MOTOR_INTENSITY_DEADZONE, 100] -> [MIN_MOTOR_INTENSITY, MAX_MOTOR_INTENSITY]
-MOTOR_INTENSITY_DEADZONE = 10.0
-MIN_MOTOR_INTENSITY = 10.0
-MAX_MOTOR_INTENSITY = 75.0
+MOTOR_INTENSITY_DEADZONE = 30.0
+MIN_MOTOR_INTENSITY = 5.0
+MAX_MOTOR_INTENSITY = 40.0
 
 
 class HapticOutputLimiter:
@@ -43,14 +44,16 @@ class HapticOutputLimiter:
     The limiter is **time-based** so it adapts to varying loop rates.
     """
 
-    def __init__(self, num_zones: int = DEFAULT_NUM_ZONES,
+    def __init__(self, num_zones: int = NUM_ZONES,
                  max_slew: float = MAX_MOTOR_SLEW_RATE,
+                 max_active_motors: int = MAX_ACTIVE_MOTORS,
                  deadzone: float = MOTOR_INTENSITY_DEADZONE,
                  min_intensity: float = MIN_MOTOR_INTENSITY,
                  max_intensity: float = MAX_MOTOR_INTENSITY):
         self._prev = [0.0] * num_zones
         self._last_t = None
         self._max_slew = max_slew          # units / second
+        self._max_active_motors = max(0, min(num_zones, int(max_active_motors)))
         self._deadzone = max(0.0, min(100.0, float(deadzone)))
         self._min_intensity = max(0.0, min(100.0, float(min_intensity)))
         self._max_intensity = max(0.0, min(100.0, float(max_intensity)))
@@ -59,6 +62,20 @@ class HapticOutputLimiter:
                 self._max_intensity,
                 self._min_intensity,
             )
+
+    def _keep_strongest_targets(self, raw: list[float]) -> list[float]:
+        """Keep only the strongest requested motors active for this update."""
+        if self._max_active_motors >= len(raw):
+            return [max(0.0, min(100.0, float(value))) for value in raw]
+
+        clamped = [max(0.0, min(100.0, float(value))) for value in raw]
+        ranked = sorted(enumerate(clamped), key=lambda item: item[1], reverse=True)
+        keep = {
+            index
+            for index, value in ranked[:self._max_active_motors]
+            if value > 0.0
+        }
+        return [value if index in keep else 0.0 for index, value in enumerate(clamped)]
 
     def _remap_intensity(self, value_0_100: float) -> float:
         """Map 0-100 intent to deadzone + [min,max] output range."""
@@ -81,8 +98,9 @@ class HapticOutputLimiter:
             raw: desired motor values in 0-100 range (one per zone).
 
         Returns:
-            list[int]: deadzoned, remapped, and slew-limited motor values.
+            list[int]: strongest-only, deadzoned, remapped, and slew-limited motor values.
         """
+        raw = self._keep_strongest_targets(raw)
         now = time.monotonic()
         if self._last_t is None:
             # First call — accept values directly (no spike on boot)
@@ -98,7 +116,9 @@ class HapticOutputLimiter:
             target = self._remap_intensity(float(target))
             prev = self._prev[i]
             delta = target - prev
-            if abs(delta) > max_step and max_step > 0:
+            if target <= 0.0:
+                target = 0.0
+            elif abs(delta) > max_step and max_step > 0:
                 target = prev + max_step * (1 if delta > 0 else -1)
             target = max(0.0, min(100.0, target))
             out.append(int(round(target)))

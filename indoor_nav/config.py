@@ -67,7 +67,7 @@ W_MIDAS = 0.2
 
 
 #  LIDAR / TOF DISTANCE-TO-RISK MAPPING
-DIST_NEAR_CENTER_M = 0.5   # metres — center zone: closer than this is max danger
+DIST_NEAR_CENTER_M = 1   # metres — center zone: closer than this is max danger
 DIST_FAR_CENTER_M  = 3     # metres — center zone: farther than this is safe
 DIST_NEAR_SIDE_M   = 0.25   # metres — side zones: closer than this is max danger
 DIST_FAR_SIDE_M    = 1.5     # metres — side zones: farther than this is safe

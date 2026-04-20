@@ -388,11 +388,14 @@ def main():
         motor_raw = [tof_lb * 100.0, risks[0] * 100.0, risks[1] * 100.0,
                      risks[2] * 100.0, tof_rb * 100.0]
         if posture is not None and posture.tof_suppressed:
-            # Pulse all motors when posture is bad
-            pulse_on = int(time.time() * 2) % 2 == 0
-            motor_vals = [100, 100, 100, 100, 100] if pulse_on else [0, 0, 0, 0, 0]
-        else:
-            motor_vals = motor_limiter.limit(motor_raw)
+            # Pulse all motors when posture is bad (3 Hz)
+            pulse_on = int(time.time() * 3) % 2 == 0
+            motor_raw = [100, 100, 100, 100, 100] if pulse_on else [0, 0, 0, 0, 0]
+        motor_vals = motor_limiter.limit(motor_raw)
+
+        # Send motor values to ESP32
+        if esp32 is not None:
+            esp32.write_motor_values(motor_vals)
 
         # Decision
         decision = fsm.update(risks)

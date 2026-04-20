@@ -47,11 +47,23 @@ def read_from_esp(ser):
 
 def write_to_esp(ser):
     num = 0
+    repeats = 0
+    index = 0
+    # motor_strengths_loop = [0,5,10,15,20,25,30,35,40,45,50]
+    motor_strengths_loop = range(0, 26, 5)
+    MAX_INDEX = len(motor_strengths_loop)
+    NUM_REPEATS = 5
     while True:
         try:
-            msg = f"{num},{num},{num},{num},{num}"
-            num = (num + 1) % 101
-            time.sleep(0.1)
+            # msg = f"{num},{num},{num},{num},{num}"
+            msg = f"0,0,0,0,{num}"
+            if repeats > NUM_REPEATS:
+                repeats = 0
+                index = (index + 1) % MAX_INDEX
+                num = motor_strengths_loop[index]
+            repeats += 1
+
+            time.sleep(0.05)
             packet = msg.encode("ascii")
             ser.write(packet)
             ser.flush()
