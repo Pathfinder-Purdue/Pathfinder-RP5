@@ -7,7 +7,7 @@ import time
 
 from indoor_nav.config import (
     DIST_FAR_CENTER_M, DIST_NEAR_CENTER_M,
-    DIST_FAR_SIDE_M, DIST_NEAR_SIDE_M,
+    DIST_FAR_SIDE_M, DIST_NEAR_SIDE_M
 )
 
 
@@ -19,22 +19,60 @@ from indoor_nav.config import (
 MAX_MOTOR_SLEW_RATE = 250          # units per second
 DEFAULT_NUM_ZONES   = 3
 
+#  HAPTIC MOTOR OUTPUT LIMITS
+# Raw vibration intent is produced in 0-100, then remapped before UART output.
+# 1) [0, MOTOR_INTENSITY_DEADZONE] -> 0 (deadzone)
+# 2) (MOTOR_INTENSITY_DEADZONE, 100] -> [MIN_MOTOR_INTENSITY, MAX_MOTOR_INTENSITY]
+MOTOR_INTENSITY_DEADZONE = 10.0
+MIN_MOTOR_INTENSITY = 10.0
+MAX_MOTOR_INTENSITY = 75.0
+
 
 class HapticOutputLimiter:
-    """Rate-limits motor value changes to protect hardware.
+    """Rate-limits and remaps motor values to protect hardware.
 
     Each call to ``limit()`` returns adjusted motor values whose per-step
     change is bounded by *MAX_MOTOR_SLEW_RATE × dt* so that even if the
     raw input jumps from 0 → 100 the actual output ramps up smoothly.
 
+    Input intent values are first clamped to 0-100 and remapped to motor-safe
+    output using:
+    - [0, deadzone] -> 0
+    - (deadzone, 100] -> [min_intensity, max_intensity] linearly
+
     The limiter is **time-based** so it adapts to varying loop rates.
     """
 
     def __init__(self, num_zones: int = DEFAULT_NUM_ZONES,
-                 max_slew: float = MAX_MOTOR_SLEW_RATE):
+                 max_slew: float = MAX_MOTOR_SLEW_RATE,
+                 deadzone: float = MOTOR_INTENSITY_DEADZONE,
+                 min_intensity: float = MIN_MOTOR_INTENSITY,
+                 max_intensity: float = MAX_MOTOR_INTENSITY):
         self._prev = [0.0] * num_zones
         self._last_t = None
         self._max_slew = max_slew          # units / second
+        self._deadzone = max(0.0, min(100.0, float(deadzone)))
+        self._min_intensity = max(0.0, min(100.0, float(min_intensity)))
+        self._max_intensity = max(0.0, min(100.0, float(max_intensity)))
+        if self._min_intensity > self._max_intensity:
+            self._min_intensity, self._max_intensity = (
+                self._max_intensity,
+                self._min_intensity,
+            )
+
+    def _remap_intensity(self, value_0_100: float) -> float:
+        """Map 0-100 intent to deadzone + [min,max] output range."""
+        v = max(0.0, min(100.0, value_0_100))
+
+        if v <= self._deadzone:
+            return 0.0
+
+        if self._deadzone >= 100.0:
+            return self._max_intensity
+
+        span_in = 100.0 - self._deadzone
+        t = (v - self._deadzone) / span_in
+        return self._min_intensity + t * (self._max_intensity - self._min_intensity)
 
     def limit(self, raw: list[float]) -> list[int]:
         """Apply slew-rate limiting and return safe integer motor values.
@@ -43,7 +81,7 @@ class HapticOutputLimiter:
             raw: desired motor values in 0-100 range (one per zone).
 
         Returns:
-            list[int]: clamped, slew-limited motor values 0-100.
+            list[int]: deadzoned, remapped, and slew-limited motor values.
         """
         now = time.monotonic()
         if self._last_t is None:
@@ -57,7 +95,7 @@ class HapticOutputLimiter:
 
         out = []
         for i, target in enumerate(raw):
-            target = max(0.0, min(100.0, target))   # hard clamp
+            target = self._remap_intensity(float(target))
             prev = self._prev[i]
             delta = target - prev
             if abs(delta) > max_step and max_step > 0:

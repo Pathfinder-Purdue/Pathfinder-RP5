@@ -426,8 +426,14 @@ def main():
             avg_fps = sum(fps_buf) / len(fps_buf)
 
             motor_display = [v / 100.0 for v in motor_vals]
-            telemetry = build_telemetry_panel(FRAME_WIDTH, decision, motor_display,
-                                              fsm.state, avg_fps)
+            telemetry = build_telemetry_panel(
+                FRAME_WIDTH,
+                decision,
+                risks_5,
+                fsm.state,
+                avg_fps,
+                motor_values=motor_display,
+            )
             display = np.vstack([vis, telemetry])
 
             cv2.imshow("Pathfinder - Integrated", display)

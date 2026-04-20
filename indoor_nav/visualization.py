@@ -84,13 +84,23 @@ def draw_depth_overlay(frame, depth_map, alpha=0.25):
     cv2.addWeighted(d_color, alpha, frame, 1 - alpha, 0, dst=frame)
 
 
-def build_telemetry_panel(width, decision, risks, fsm_state, fps):
-    """Info strip below the video feed: state, risk bars, nav arrow, FPS."""
+def build_telemetry_panel(width, decision, sector_risks, fsm_state, fps, motor_values=None):
+    """Info strip below video: state, sector risk + motor bars, nav arrow, FPS."""
     panel = np.full((PANEL_HEIGHT, width, 3), BG_DARK, dtype=np.uint8)
 
-    _draw_state_column(panel, decision, fsm_state, x=12)
-    _draw_risk_bars(panel, risks, x=width // 3)
-    _draw_nav_cue(panel, decision, fps, x=2 * width // 3)
+    if motor_values is None:
+        motor_values = sector_risks
+
+    # Compact fixed-width columns tuned for 640 px video width.
+    state_x = 10
+    risk_x = 150
+    motor_x = 350
+    nav_x = 550
+
+    _draw_state_column(panel, decision, fsm_state, x=state_x)
+    _draw_value_bars(panel, "SECTOR", sector_risks, x=risk_x)
+    _draw_value_bars(panel, "MOTOR", motor_values, x=motor_x)
+    _draw_nav_cue(panel, decision, fps, x=nav_x)
 
     cv2.line(panel, (0, 0), (width, 0), ACCENT, 2)  # separator
     return panel
@@ -99,77 +109,78 @@ def build_telemetry_panel(width, decision, risks, fsm_state, fps):
 def _draw_state_column(panel, decision, fsm_state, x):
     """Left column: state + command."""
     cv2.putText(panel, "STATE", (x, 22),
-                FONT, 0.45, ACCENT, 1, cv2.LINE_AA)
-    cv2.putText(panel, fsm_state, (x, 50),
-                FONT, 0.65, WHITE, 2, cv2.LINE_AA)
+                FONT, 0.40, ACCENT, 1, cv2.LINE_AA)
+    cv2.putText(panel, fsm_state, (x, 46),
+                FONT, 0.56, WHITE, 2, cv2.LINE_AA)
 
     color = command_color(decision.command)
-    cv2.putText(panel, decision.command, (x, 82),
-                FONT, 0.75, color, 2, cv2.LINE_AA)
-    cv2.putText(panel, decision.explanation, (x, 108),
-                FONT, 0.40, WHITE, 1, cv2.LINE_AA)
+    cv2.putText(panel, decision.command, (x, 74),
+                FONT, 0.62, color, 2, cv2.LINE_AA)
+    cv2.putText(panel, decision.explanation, (x, 98),
+                FONT, 0.34, WHITE, 1, cv2.LINE_AA)
 
 
-def _draw_risk_bars(panel, risks, x):
-    """Middle column: LB/L/C/R/RB risk bars."""
-    cv2.putText(panel, "SECTOR RISK", (x, 22),
-                FONT, 0.45, ACCENT, 1, cv2.LINE_AA)
+def _draw_value_bars(panel, title, values, x):
+    """Draw a compact LB/L/C/R/RB bar stack for normalized values."""
+    cv2.putText(panel, title, (x, 22),
+                FONT, 0.40, ACCENT, 1, cv2.LINE_AA)
 
     labels  = ["LB", "L", "C", "R", "RB"]
     max_bar = 150
 
-    for idx, (label, value) in enumerate(zip(labels, risks)):
+    for idx, (label, value) in enumerate(zip(labels, values)):
+        value = max(0.0, min(1.0, float(value)))
         y = 38 + idx * 24
         bar_w = int(value * max_bar)
         bar_color = proximity_color(value)
 
         cv2.putText(panel, label, (x, y + 12),
-                    FONT, 0.42, WHITE, 1, cv2.LINE_AA)
-        cv2.rectangle(panel, (x + 28, y), (x + 28 + bar_w, y + 16),
+                    FONT, 0.38, WHITE, 1, cv2.LINE_AA)
+        cv2.rectangle(panel, (x + 18, y), (x + 18 + bar_w, y + 16),
                       bar_color, -1)
-        cv2.rectangle(panel, (x + 28, y), (x + 28 + max_bar, y + 16),
+        cv2.rectangle(panel, (x + 18, y), (x + 18 + max_bar, y + 16),
                       GREY_BORDER, 1)
-        cv2.putText(panel, f"{value:.0%}", (x + 185, y + 13),
-                    FONT, 0.36, WHITE, 1, cv2.LINE_AA)
+        cv2.putText(panel, f"{int(round(value * 100)):>3}%", (x + 86, y + 13),
+                    FONT, 0.33, WHITE, 1, cv2.LINE_AA)
 
 
 def _draw_nav_cue(panel, decision, fps, x):
     """Right column: direction arrow, urgency, FPS."""
     cv2.putText(panel, "NAV CUE", (x, 22),
-                FONT, 0.45, ACCENT, 1, cv2.LINE_AA)
+                FONT, 0.40, ACCENT, 1, cv2.LINE_AA)
 
-    cx, cy, length = x + 70, 72, 35
+    cx, cy, length = x + 46, 68, 26
 
     if decision.command == "VEER LEFT":
         pts = np.array([
             [cx - length, cy],
-            [cx + 10, cy - 18],
-            [cx + 10, cy + 18],
+            [cx + 8, cy - 14],
+            [cx + 8, cy + 14],
         ], np.int32)
         cv2.fillPoly(panel, [pts], ACCENT)
 
     elif decision.command == "VEER RIGHT":
         pts = np.array([
             [cx + length, cy],
-            [cx - 10, cy - 18],
-            [cx - 10, cy + 18],
+            [cx - 8, cy - 14],
+            [cx - 8, cy + 14],
         ], np.int32)
         cv2.fillPoly(panel, [pts], ACCENT)
 
     elif decision.command == "GO":
         pts = np.array([
             [cx, cy - length],
-            [cx - 18, cy + 10],
-            [cx + 18, cy + 10],
+            [cx - 14, cy + 8],
+            [cx + 14, cy + 8],
         ], np.int32)
         cv2.fillPoly(panel, [pts], GREEN)
 
     else:
-        cv2.circle(panel, (cx, cy), 22, RED, -1)
-        cv2.putText(panel, "!", (cx - 6, cy + 8),
-                    FONT, 0.7, WHITE, 2, cv2.LINE_AA)
+        cv2.circle(panel, (cx, cy), 18, RED, -1)
+        cv2.putText(panel, "!", (cx - 5, cy + 7),
+                    FONT, 0.6, WHITE, 2, cv2.LINE_AA)
 
-    cv2.putText(panel, f"Urgency: {decision.urgency:.0%}", (x, 120),
-                FONT, 0.45, WHITE, 1, cv2.LINE_AA)
-    cv2.putText(panel, f"FPS: {fps:.1f}", (x, 145),
-                FONT, 0.45, GREEN, 1, cv2.LINE_AA)
+    cv2.putText(panel, f"U: {decision.urgency:.0%}", (x, 108),
+                FONT, 0.40, WHITE, 1, cv2.LINE_AA)
+    cv2.putText(panel, f"FPS: {fps:.1f}", (x, 132),
+                FONT, 0.40, GREEN, 1, cv2.LINE_AA)
