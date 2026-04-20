@@ -1,14 +1,12 @@
 """Fuses sensor sources into [L, C, R] risk scores and smooths with EMA."""
 
-from indoor_nav.config import W_LIDAR, W_TOF, W_MIDAS, EMA_ALPHA
-from indoor_nav.sensors import distance_to_risk
+from indoor_nav.config import W_LIDAR, W_MIDAS, EMA_ALPHA
 
 
 def fuse_sector_risks(
     midas_risks,
     yolo_obstacles,
     lidar_sectors=None,
-    tof_sectors=None,
 ):
     """Weighted decision of all sensors into [L, C, R], then YOLO overlay on top."""
     risks = [0.0, 0.0, 0.0]
@@ -22,8 +20,6 @@ def fuse_sector_risks(
         if lidar_sectors is not None:
             sources.append((W_LIDAR, lidar_sectors[i]))  # already 0–1 risk
 
-        if tof_sectors is not None:
-            sources.append((W_TOF, distance_to_risk(tof_sectors[i])))
 
         # absent sensors get their weight redistributed automatically
         total_weight = sum(w for w, _ in sources)
@@ -34,9 +30,9 @@ def fuse_sector_risks(
         )
 
     # YOLO can only raise risk
-    for sector_idx, proximity, _box in yolo_obstacles:
-        if proximity > risks[sector_idx]:
-            risks[sector_idx] = proximity
+    # for sector_idx, proximity, _box in yolo_obstacles:
+    #     if proximity > risks[sector_idx]:
+    #         risks[sector_idx] = proximity
 
     return risks
 

@@ -18,7 +18,7 @@ from indoor_nav.models import load_yolo, load_midas, run_yolo, run_midas
 from indoor_nav.sensors import (
     ESP32Reader, read_tof_ground_risk, read_imu,
     init_lidar, stop_lidar, read_lidar_sectors,
-    calibrate_posture,
+    PostureMonitor,
 )
 from indoor_nav.detection import normalize_depth, midas_sector_risks, scored_yolo_obstacles
 from indoor_nav.risk_engine import fuse_sector_risks, RiskSmoother
@@ -107,14 +107,14 @@ _WHITE = (220, 220, 220)
 
 
 def _draw_lidar_status(frame, lidar_5, hz):
-    """Draw LiDAR [FL, L, C, R, FR] risk values in the top-right corner."""
+    """Draw LiDAR [LB, L, C, R, RB] risk values in the top-right corner."""
     x = frame.shape[1] - 310
     y = 18
     if lidar_5 is not None:
         peak = max(lidar_5)
         color = _RED if peak > 0.7 else _GREEN
         cv2.putText(frame,
-                    f"LiDAR [{hz:.1f}Hz]: FL={lidar_5[0]:.0%} L={lidar_5[1]:.0%} C={lidar_5[2]:.0%} R={lidar_5[3]:.0%} FR={lidar_5[4]:.0%}",
+                    f"LiDAR [{hz:.1f}Hz]: LB={lidar_5[0]:.0%} L={lidar_5[1]:.0%} C={lidar_5[2]:.0%} R={lidar_5[3]:.0%} RB={lidar_5[4]:.0%}",
                     (x, y), _FONT, 0.34, color, 1, cv2.LINE_AA)
     else:
         cv2.putText(frame, f"LiDAR [{hz:.1f}Hz]: waiting ...",
@@ -218,7 +218,6 @@ def main():
 
     lidar_5      = None
     lidar_inner  = None
-    lidar_flanks = None
     tof_risks    = None
     imu_data     = None
     gps_data     = None
@@ -228,13 +227,8 @@ def main():
     speaker.start()
     last_spoken_command = None
 
-    # Posture calibration (IMU-based, required for ToF ground detection)
-    print("[integrated] Running posture calibration ...")
-    calibration = calibrate_posture(speaker, esp32)
-    if calibration is not None:
-        print(f"[integrated] Calibration baseline: {calibration}")
-    else:
-        print("[integrated] WARNING -- calibration failed, using defaults")
+    # Posture monitor (auto-calibrates from first stable IMU readings)
+    posture = PostureMonitor(speaker=speaker)
 
     fps_buf = deque(maxlen=30)
     t_prev  = time.time()
@@ -318,7 +312,7 @@ def main():
     t_inf.start()
     print("[integrated] Streaming -- press 'q' to quit")
 
-    motor_limiter = HapticOutputLimiter(num_zones=3)
+    motor_limiter = HapticOutputLimiter(num_zones=5)
 
     # Main frame loop
     while not stop_event.is_set():
@@ -334,19 +328,24 @@ def main():
             continue
 
         # Read LiDAR sectors
-        lidar_5 = read_lidar_sectors()                 # [FL,L,C,R,FR] 0-1 risk
+        lidar_5 = read_lidar_sectors()                 # [LB,L,C,R,RB] 0-1 risk
         if lidar_5 is not None:
             hz_lidar.tick()
             lidar_inner  = lidar_5[1:4]                # [L,C,R] for fusion
-            lidar_flanks = [lidar_5[0], lidar_5[4]]    # [FL,FR] for validation
         else:
             lidar_inner  = None
-            lidar_flanks = None
 
         # Read ESP32 sensors — tick Hz on new data
         tof_risks = read_tof_ground_risk(esp32)       # [L,R] ground risk
         imu_data  = read_imu(esp32)                   # [ax,ay,az,gx,gy,gz]
         gps_data  = esp32.gps if esp32 is not None else None
+
+        # Continuous posture monitoring — suppress ToF when slouching
+        posture_changed = posture.update(imu_data)
+        if posture_changed and not posture.posture_ok:
+            speaker.say("Straighten your posture")
+        elif posture_changed and posture.posture_ok:
+            speaker.say("Posture restored")
 
         if esp32 is not None:
             s = esp32.tof_seq
@@ -362,20 +361,30 @@ def main():
                 hz_gps.tick()
                 prev_gps_seq = s
 
-        # Sensor fusion (CV + LiDAR inner zones)
+        # Sensor fusion (LiDAR + MiDaS + YOLO → L/C/R)
         depth_normed    = normalize_depth(depth_map)
         midas_risks_vec = midas_sector_risks(depth_normed)
         yolo_obstacles  = scored_yolo_obstacles(yolo_results, depth_normed, FRAME_WIDTH)
         raw_risks       = fuse_sector_risks(midas_risks_vec, yolo_obstacles,
-                                            lidar_sectors=lidar_inner, tof_sectors=tof_risks)
+                                            lidar_sectors=lidar_inner)
         risks    = smoother.update(raw_risks)
 
-        # Print LiDAR L/C/R motor values to terminal (0-100, slew-limited)
-        motor_vals = motor_limiter.limit([r * 100.0 for r in risks])
-        print(f"Motor L={motor_vals[0]:3d}  C={motor_vals[1]:3d}  R={motor_vals[2]:3d}", flush=True)
+        # ToF → LB/RB risks (ground-level only)
+        tof_lb = tof_risks[0] if tof_risks else 0.0
+        tof_rb = tof_risks[1] if tof_risks else 0.0
 
-        # Decision with ToF ground + LiDAR flank validation
-        decision = fsm.update(risks, lidar_flanks=lidar_flanks, tof_risks=tof_risks)
+        # 5-zone motor output: [LB, L, C, R, RB]
+        motor_raw = [tof_lb * 100.0, risks[0] * 100.0, risks[1] * 100.0,
+                     risks[2] * 100.0, tof_rb * 100.0]
+        if posture.tof_suppressed:
+            # Pulse all motors when posture is bad
+            pulse_on = int(time.time() * 2) % 2 == 0
+            motor_vals = [100, 100, 100, 100, 100] if pulse_on else [0, 0, 0, 0, 0]
+        else:
+            motor_vals = motor_limiter.limit(motor_raw)
+
+        # Decision
+        decision = fsm.update(risks)
 
         # Speak navigation command on change
         if decision.command != last_spoken_command:
@@ -386,10 +395,8 @@ def main():
                 speaker.say(decision.command)
             last_spoken_command = decision.command
 
-        # Build 5-sector view for telemetry
-        fl = lidar_flanks[0] if lidar_flanks else 0.0
-        fr = lidar_flanks[1] if lidar_flanks else 0.0
-        risks_5 = [fl, risks[0], risks[1], risks[2], fr]
+        # Build 5-sector view for telemetry: [LB, L, C, R, RB]
+        risks_5 = [tof_lb, risks[0], risks[1], risks[2], tof_rb]
 
         # Visualization
         if args.viz:

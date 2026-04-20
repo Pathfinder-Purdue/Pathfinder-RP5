@@ -111,11 +111,11 @@ def _draw_state_column(panel, decision, fsm_state, x):
 
 
 def _draw_risk_bars(panel, risks, x):
-    """Middle column: FL/L/C/R/FR risk bars."""
+    """Middle column: LB/L/C/R/RB risk bars."""
     cv2.putText(panel, "SECTOR RISK", (x, 22),
                 FONT, 0.45, ACCENT, 1, cv2.LINE_AA)
 
-    labels  = ["FL", "L", "C", "R", "FR"]
+    labels  = ["LB", "L", "C", "R", "RB"]
     max_bar = 150
 
     for idx, (label, value) in enumerate(zip(labels, risks)):

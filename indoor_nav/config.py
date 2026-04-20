@@ -39,7 +39,7 @@ DEPTH_CLOSE_THRESHOLD = 0.55   # pixel fraction considered "close" in a sector
 # Proximity zones for coloring YOLO bounding boxes:
 PROX_NEAR = 0.70    # ≥ this = HIGH threat   (red)
 PROX_MID  = 0.45    # ≥ this = MODERATE      (amber)
-                     # < this = LOW threat    (green)
+                    # < this = LOW threat    (green)
 
 #  FSM DECISION THRESHOLDS  (risk score 0.0–1.0)
 # Evaluated top-down: first condition met wins.
@@ -60,9 +60,10 @@ HYSTERESIS   = 0.08    # extra margin to leave a triggered state
 
 #  SENSOR FUSION WEIGHTS
 # When all sensors are present these control the blend.
-W_LIDAR = 0.50    # most reliable distance measurement
-W_TOF   = 0.30    # short-range validation
-W_MIDAS = 0.20    # always-on depth estimate (software sensor)
+# W_LIDAR = 0.70    # most reliable distance measurement
+# W_MIDAS = 0.30    # always-on depth estimate (software sensor)
+W_LIDAR = 0.8
+W_MIDAS = 0.2
 
 
 #  LIDAR / TOF DISTANCE-TO-RISK MAPPING
@@ -75,19 +76,16 @@ TOF_NOISE_FLOOR_MM = 20      # readings below this are sensor noise
 TOF_CLOSE_MM       = 300     # closer than this → max risk
 TOF_FAR_MM         = 1500    # farther than this → safe
 TOF_OVERRIDE_RISK  = 0.90    # if any ToF sector risk >= this, force STOP
-TOF_VETO_RISK      = 0.65    # ToF risk >= this vetoes walking that direction
-LIDAR_FLANK_SAFE   = 0.45    # LiDAR flank risk must be below this to veer that way
 
 
 #  ESP32 UART
-ESP32_PORT = "/dev/ttyAMA0"
+ESP32_PORT = "/dev/serial/by-id/usb-FTDI_FT232R_USB_UART_00000000-if00-port0"
 ESP32_BAUD = 115200
 
 
 #  POSTURE CALIBRATION (IMU-based, runs at startup)
 # The backpack must be roughly upright for ToF ground detection to work.
 # IMU accel Z should dominate when upright; pitch/roll derived from accel.
-USE_DUMMY_IMU               = True   # ← set to False when real ESP32 IMU is connected
 CALIBRATION_PITCH_TOLERANCE = 15.0   # degrees — max forward/backward tilt
 CALIBRATION_ROLL_TOLERANCE  = 10.0   # degrees — max side tilt
 CALIBRATION_HOLD_SECS       = 2.0    # user must hold good posture this long

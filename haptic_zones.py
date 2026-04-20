@@ -119,9 +119,9 @@ def get_haptic_zones(lidar_data, max_distance=3000.0, full_blast_threshold=1500.
         }
     
     Zone layout (assuming forward = 0 degrees):
-        - Left: 300-340 degrees (40 degree span)
-        - Center: 340-20 degrees (40 degree span, wraps around 0)
-        - Right: 20-60 degrees (40 degree span)
+        - Left: 290-345 degrees (55 degree span)
+        - Center: 345-15 degrees (30 degree span, wraps around 0)
+        - Right: 15-70 degrees (55 degree span)
     
     Vibration formula (quadratic ramp):
         x = clamp((max_distance - distance) / (max_distance - full_blast_threshold), 0, 1)
@@ -162,9 +162,9 @@ def get_haptic_zones(lidar_data, max_distance=3000.0, full_blast_threshold=1500.
     
     # Define the three 40-degree zones
     zones = {
-        'left': (300, 340),      # Left zone: 300-340 degrees
-        'center': (340, 20),     # Center zone: 340-20 (wraps around)
-        'right': (20, 60)        # Right zone: 20-60 degrees
+        'left': (290, 345),      # Left zone: 290-345 degrees
+        'center': (345, 15),     # Center zone: 345-15 (wraps around)
+        'right': (15, 70)        # Right zone: 15-70 degrees
     }
     
     result = {}
@@ -186,15 +186,15 @@ def get_haptic_zones(lidar_data, max_distance=3000.0, full_blast_threshold=1500.
 
 
 def get_haptic_zones_5(lidar_data, max_distance=3000.0, full_blast_threshold=1500.0):
-    """Split 120-degree front FOV into 5 zones: far_left, left, center, right, far_right.
+    """Split 120-degree front FOV into 5 zones: left_bottom, left, center, right, right_bottom.
 
-    FL and FR cover the extra ~17.5 degrees on each side beyond the camera FOV.
+    LB and RB cover the extra ~17.5 degrees on each side beyond the camera FOV.
     Zone layout (forward = 0 degrees):
-        far_left:  300-320   (20 degrees, LiDAR-only)
-        left:      320-340   (20 degrees)
-        center:    340-20    (40 degrees, wraps around 0)
-        right:     20-40     (20 degrees)
-        far_right: 40-60     (20 degrees, LiDAR-only)
+        left_bottom:  300-320   (20 degrees, LiDAR-only)
+        left:         320-340   (20 degrees)
+        center:       340-20    (40 degrees, wraps around 0)
+        right:        20-40     (20 degrees)
+        right_bottom: 40-60     (20 degrees, LiDAR-only)
     """
 
     def normalize_angle(angle):
@@ -219,11 +219,11 @@ def get_haptic_zones_5(lidar_data, max_distance=3000.0, full_blast_threshold=150
         return (x ** 2) * 100.0
 
     zones = {
-        'far_left':  (300, 320),
-        'left':      (320, 340),
-        'center':    (340, 20),
-        'right':     (20, 40),
-        'far_right': (40, 60),
+        'left_bottom':  (300, 320),
+        'left':         (320, 340),
+        'center':       (340, 20),
+        'right':        (20, 40),
+        'right_bottom': (40, 60),
     }
 
     result = {}

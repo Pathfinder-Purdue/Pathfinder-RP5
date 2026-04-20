@@ -4,30 +4,8 @@ import time
 import glob
 
 
-def _find_lidar_port():
-    """Auto-detect the LiDAR serial port (CP210x USB-UART bridge)."""
-    # 1. Config file override
-    try:
-        with open("lidar/_lidar.config", "r") as f:
-            port = f.read().strip()
-            if port:
-                return port
-    except FileNotFoundError:
-        pass
 
-    # 2. Look for CP210x by-id symlink (stable across re-enumeration)
-    for link in sorted(glob.glob("/dev/serial/by-id/*CP210x*")):
-        return link
-
-    # 3. Fallback: first available ttyUSB
-    usb_ports = sorted(glob.glob("/dev/ttyUSB*"))
-    if usb_ports:
-        return usb_ports[0]
-
-    return "/dev/ttyUSB0"
-
-
-LIDAR_PORT = _find_lidar_port()
+LIDAR_PORT = "/dev/serial/by-id/usb-Silicon_Labs_CP2102N_USB_to_UART_Bridge_Controller_ac8cbf20826eef118ad1e0c2c169b110-if00-port0"
 LIDAR_BAUDRATE = 460800
 
 class LidarData:
