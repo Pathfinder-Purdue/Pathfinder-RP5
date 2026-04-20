@@ -5,7 +5,10 @@ This file is isolated for easy copying to other branches.
 
 import time
 
-from indoor_nav.config import DIST_FAR_M, DIST_NEAR_M
+from indoor_nav.config import (
+    DIST_FAR_CENTER_M, DIST_NEAR_CENTER_M,
+    DIST_FAR_SIDE_M, DIST_NEAR_SIDE_M,
+)
 
 
 # ── Slew-rate limiter ──────────────────────────────────────────────────
@@ -66,18 +69,16 @@ class HapticOutputLimiter:
         return out
 
 
-def get_haptic_zones(lidar_data, max_distance=DIST_FAR_M * 1000.0,
-                     full_blast_threshold=DIST_NEAR_M * 1000.0):
+def get_haptic_zones(lidar_data):
     """
     Extract haptic vibration values from LIDAR data for a wearable device.
     
-    Divides the 120-degree front field of view into 3 equal 40-degree zones
-    (left, center, right) and returns normalized vibration intensities for each.
+    Divides the front field of view into 3 zones (left, center, right)
+    and returns normalized vibration intensities for each.
+    Center and side zones use separate distance thresholds from config.
     
     Args:
         lidar_data (LidarData): LIDAR scan data object
-        max_distance (float): Maximum detection distance in mm (default 3000 mm = 3.0 m)
-        full_blast_threshold (float): Distance in mm for maximum vibration (default 1500 mm = 1.5 m)
     
     Returns:
         dict: {
@@ -114,24 +115,29 @@ def get_haptic_zones(lidar_data, max_distance=DIST_FAR_M * 1000.0,
         else:  # Range wraps around 360
             return angle >= start or angle <= end
     
-    def distance_to_vibration(distance_mm):
+    def distance_to_vibration(distance_mm, max_distance_m, threshold_m):
         """Convert distance in mm to vibration intensity (0-100) using quadratic ramp."""
         if distance_mm is None:
             return 0.0
         
         distance_m = distance_mm / 1000.0
-        max_dist_m = max_distance / 1000.0
-        threshold_m = full_blast_threshold / 1000.0
         
         # Clamp normalized distance to [0, 1]
-        x = (max_dist_m - distance_m) / (max_dist_m - threshold_m)
+        x = (max_distance_m - distance_m) / (max_distance_m - threshold_m)
         x = max(0.0, min(1.0, x))
         
         # Apply quadratic function, scale to 0-100
         vibration = (x ** 2) * 100.0
         return vibration
     
-    # Define the three 40-degree zones
+    # Per-zone distance thresholds (centre vs side)
+    zone_thresholds = {
+        'left':   (DIST_FAR_SIDE_M,   DIST_NEAR_SIDE_M),
+        'center': (DIST_FAR_CENTER_M, DIST_NEAR_CENTER_M),
+        'right':  (DIST_FAR_SIDE_M,   DIST_NEAR_SIDE_M),
+    }
+
+    # Define the three zones
     zones = {
         'left': (290, 345),      # Left zone: 290-345 degrees
         'center': (345, 15),     # Center zone: 345-15 (wraps around)
@@ -149,18 +155,19 @@ def get_haptic_zones(lidar_data, max_distance=DIST_FAR_M * 1000.0,
                     closest_distance = distance
         
         # Convert to vibration intensity
-        vibration = distance_to_vibration(closest_distance)
+        far_m, near_m = zone_thresholds[zone_name]
+        vibration = distance_to_vibration(closest_distance, far_m, near_m)
         result[zone_name] = vibration
         result[f'{zone_name}_distance'] = closest_distance
     
     return result
 
 
-def get_haptic_zones_5(lidar_data, max_distance=DIST_FAR_M * 1000.0,
-                       full_blast_threshold=DIST_NEAR_M * 1000.0):
-    """Split 120-degree front FOV into 5 zones: left_bottom, left, center, right, right_bottom.
+def get_haptic_zones_5(lidar_data):
+    """Split front FOV into 5 zones: left_bottom, left, center, right, right_bottom.
 
-    LB and RB cover the extra ~17.5 degrees on each side beyond the camera FOV.
+    LB and RB cover the extra degrees on each side beyond the camera FOV.
+    Center and side zones use separate distance thresholds from config.
     Zone layout (forward = 0 degrees):
         left_bottom:  300-320   (20 degrees, LiDAR-only)
         left:         320-340   (20 degrees)
@@ -181,14 +188,20 @@ def get_haptic_zones_5(lidar_data, max_distance=DIST_FAR_M * 1000.0,
         else:
             return angle >= start or angle <= end
 
-    def distance_to_vibration(distance_mm):
+    def distance_to_vibration(distance_mm, max_distance_m, threshold_m):
         if distance_mm is None:
             return 0.0
-        max_m = max_distance / 1000.0
-        thresh_m = full_blast_threshold / 1000.0
-        x = (max_m - distance_mm / 1000.0) / (max_m - thresh_m)
+        x = (max_distance_m - distance_mm / 1000.0) / (max_distance_m - threshold_m)
         x = max(0.0, min(1.0, x))
         return (x ** 2) * 100.0
+
+    zone_thresholds = {
+        'left_bottom':  (DIST_FAR_SIDE_M,   DIST_NEAR_SIDE_M),
+        'left':         (DIST_FAR_SIDE_M,   DIST_NEAR_SIDE_M),
+        'center':       (DIST_FAR_CENTER_M, DIST_NEAR_CENTER_M),
+        'right':        (DIST_FAR_SIDE_M,   DIST_NEAR_SIDE_M),
+        'right_bottom': (DIST_FAR_SIDE_M,   DIST_NEAR_SIDE_M),
+    }
 
     zones = {
         'left_bottom':  (300, 320),
@@ -205,7 +218,8 @@ def get_haptic_zones_5(lidar_data, max_distance=DIST_FAR_M * 1000.0,
             if angle_in_range(angle, start, end) and distance is not None:
                 if closest_distance is None or distance < closest_distance:
                     closest_distance = distance
-        result[zone_name] = distance_to_vibration(closest_distance)
+        far_m, near_m = zone_thresholds[zone_name]
+        result[zone_name] = distance_to_vibration(closest_distance, far_m, near_m)
         result[f'{zone_name}_distance'] = closest_distance
 
     return result
