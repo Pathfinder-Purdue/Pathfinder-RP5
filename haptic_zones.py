@@ -5,6 +5,8 @@ This file is isolated for easy copying to other branches.
 
 import time
 
+from indoor_nav.config import DIST_FAR_M, DIST_NEAR_M
+
 
 # ── Slew-rate limiter ──────────────────────────────────────────────────
 
@@ -64,7 +66,8 @@ class HapticOutputLimiter:
         return out
 
 
-def get_haptic_zones(lidar_data, max_distance=3000.0, full_blast_threshold=1500.0):
+def get_haptic_zones(lidar_data, max_distance=DIST_FAR_M * 1000.0,
+                     full_blast_threshold=DIST_NEAR_M * 1000.0):
     """
     Extract haptic vibration values from LIDAR data for a wearable device.
     
@@ -153,7 +156,8 @@ def get_haptic_zones(lidar_data, max_distance=3000.0, full_blast_threshold=1500.
     return result
 
 
-def get_haptic_zones_5(lidar_data, max_distance=3000.0, full_blast_threshold=1500.0):
+def get_haptic_zones_5(lidar_data, max_distance=DIST_FAR_M * 1000.0,
+                       full_blast_threshold=DIST_NEAR_M * 1000.0):
     """Split 120-degree front FOV into 5 zones: left_bottom, left, center, right, right_bottom.
 
     LB and RB cover the extra ~17.5 degrees on each side beyond the camera FOV.

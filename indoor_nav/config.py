@@ -67,8 +67,8 @@ W_MIDAS = 0.2
 
 
 #  LIDAR / TOF DISTANCE-TO-RISK MAPPING
-DIST_NEAR_M = 0.6     # metres — closer than this is max danger
-DIST_FAR_M  = 2.5     # metres — farther than this is safe
+DIST_NEAR_M = 0.5     # metres — closer than this is max danger
+DIST_FAR_M  = 3     # metres — farther than this is safe
 
 
 #  TOF GROUND-LEVEL OBSTACLE DETECTION  (values in mm)

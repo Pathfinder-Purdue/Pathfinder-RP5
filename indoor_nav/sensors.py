@@ -11,7 +11,6 @@ import threading
 import numpy as np
 
 from indoor_nav.config import (
-    DIST_NEAR_M, DIST_FAR_M,
     TOF_NOISE_FLOOR_MM, TOF_CLOSE_MM, TOF_FAR_MM,
     ESP32_PORT, ESP32_BAUD,
     CALIBRATION_PITCH_TOLERANCE, CALIBRATION_ROLL_TOLERANCE,
@@ -290,15 +289,6 @@ def read_imu(esp32):
     if esp32 is None:
         return None
     return esp32.imu
-
-
-# ── Utility ───────────────────────────────────────────────────────────
-
-def distance_to_risk(dist_m, near_m=DIST_NEAR_M, far_m=DIST_FAR_M):
-    """Linear ramp from distance in metres to 0-1 risk score."""
-    if dist_m is None:
-        return 0.0
-    return float(np.clip(1.0 - (dist_m - near_m) / (far_m - near_m), 0.0, 1.0))
 
 
 # ── Posture Calibration ───────────────────────────────────────────────
