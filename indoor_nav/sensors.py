@@ -246,8 +246,8 @@ class ESP32Reader:
 # ToF ground-level processing
 
 # 4x4 grid -> L / R column mapping
-_TOF_LEFT_IDX  = [0, 1, 4, 5, 8, 9, 12, 13]           # columns 0-1
-_TOF_RIGHT_IDX = [2, 3, 6, 7, 10, 11, 14, 15]          # columns 2-3
+_TOF_LEFT_IDX  = [2, 3, 6, 7, 10, 11, 14, 15]           # columns 0-1
+_TOF_RIGHT_IDX = [0, 1, 4, 5, 8, 9, 12, 13]          # columns 2-3
 
 
 def tof_grid_to_sectors(tof_16):
