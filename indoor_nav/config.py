@@ -73,11 +73,11 @@ DIST_NEAR_SIDE_M   = 0.25   # metres — side zones: closer than this is max dan
 DIST_FAR_SIDE_M    = 1.5     # metres — side zones: farther than this is safe
 
 
-#  TOF GROUND-LEVEL OBSTACLE DETECTION  (values in mm)
-TOF_NOISE_FLOOR_MM = 20      # readings below this are sensor noise
-TOF_CLOSE_MM       = 300     # closer than this → max risk
-TOF_FAR_MM         = 1500    # farther than this → safe
-TOF_OVERRIDE_RISK  = 0.90    # if any ToF sector risk >= this, force STOP
+#  TOF GROUND-LEVEL OBSTACLE DETECTION  (deviation from calibrated baseline, mm)
+TOF_NOISE_FLOOR_MM      = 20      # readings below this are sensor noise
+TOF_DEVIATION_SAFE_MM   = 50      # deviation below this → safe (sensor noise)
+TOF_DEVIATION_DANGER_MM = 300     # deviation above this → max risk
+TOF_OVERRIDE_RISK       = 0.90    # if any ToF sector risk >= this, force STOP
 
 
 #  ESP32 UART
@@ -85,13 +85,11 @@ ESP32_PORT = "/dev/serial/by-id/usb-FTDI_FT232R_USB_UART_00000000-if00-port0"
 ESP32_BAUD = 115200
 
 
-#  POSTURE CALIBRATION (IMU-based, runs at startup)
-# The backpack must be roughly upright for ToF ground detection to work.
-# IMU accel Z should dominate when upright; pitch/roll derived from accel.
-CALIBRATION_PITCH_TOLERANCE = 15.0   # degrees — max forward/backward tilt
-CALIBRATION_ROLL_TOLERANCE  = 10.0   # degrees — max side tilt
-CALIBRATION_HOLD_SECS       = 2.0    # user must hold good posture this long
-CALIBRATION_POLL_HZ         = 10     # how often to sample IMU during calibration
+#  CALIBRATION (ToF + IMU, runs at startup)
+CALIBRATION_SECS            = 5.0    # seconds to collect sensor samples
+CALIBRATION_POLL_HZ         = 10     # how often to sample during calibration
+CALIBRATION_PITCH_TOLERANCE = 15.0   # degrees — max pitch deviation from baseline
+CALIBRATION_ROLL_TOLERANCE  = 15.0   # degrees — max roll deviation from baseline
 
 
 #  TELEMETRY PANEL (visual display)

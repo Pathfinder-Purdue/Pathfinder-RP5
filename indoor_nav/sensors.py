@@ -11,10 +11,10 @@ import threading
 import numpy as np
 
 from indoor_nav.config import (
-    TOF_NOISE_FLOOR_MM, TOF_CLOSE_MM, TOF_FAR_MM,
+    TOF_NOISE_FLOOR_MM, TOF_DEVIATION_SAFE_MM, TOF_DEVIATION_DANGER_MM,
     ESP32_PORT, ESP32_BAUD,
+    CALIBRATION_SECS, CALIBRATION_POLL_HZ,
     CALIBRATION_PITCH_TOLERANCE, CALIBRATION_ROLL_TOLERANCE,
-    CALIBRATION_HOLD_SECS,
 )
 
 try:
@@ -259,29 +259,35 @@ def tof_grid_to_sectors(tof_16):
 
     def _sector_min(indices):
         valid = [tof_16[i] for i in indices if tof_16[i] >= TOF_NOISE_FLOOR_MM]
-        return min(valid) if valid else TOF_FAR_MM
+        return min(valid) if valid else None
 
     return [_sector_min(_TOF_LEFT_IDX),
             _sector_min(_TOF_RIGHT_IDX)]
 
 
-def tof_to_risk(dist_mm):
-    """Linear ramp: distance (mm) → 0.0–1.0 ground-obstacle risk."""
-    if dist_mm >= TOF_FAR_MM:
+def tof_deviation_to_risk(dist_mm, baseline_mm):
+    """Risk based on absolute deviation from calibrated baseline height."""
+    if dist_mm is None or baseline_mm is None:
         return 0.0
-    if dist_mm <= TOF_CLOSE_MM:
+    deviation = abs(dist_mm - baseline_mm)
+    if deviation <= TOF_DEVIATION_SAFE_MM:
+        return 0.0
+    if deviation >= TOF_DEVIATION_DANGER_MM:
         return 1.0
-    return float((TOF_FAR_MM - dist_mm) / (TOF_FAR_MM - TOF_CLOSE_MM))
+    return float((deviation - TOF_DEVIATION_SAFE_MM) /
+                 (TOF_DEVIATION_DANGER_MM - TOF_DEVIATION_SAFE_MM))
 
 
-def read_tof_ground_risk(esp32):
+def read_tof_ground_risk(esp32, tof_baseline=None):
     """Get ground-level [L, R] risk scores from ESP32 ToF, or None."""
     if esp32 is None:
         return None
     sectors = tof_grid_to_sectors(esp32.tof)
     if sectors is None:
         return None
-    return [tof_to_risk(d) for d in sectors]
+    if tof_baseline is None:
+        return [0.0, 0.0]
+    return [tof_deviation_to_risk(d, b) for d, b in zip(sectors, tof_baseline)]
 
 
 def read_imu(esp32):
@@ -291,94 +297,102 @@ def read_imu(esp32):
     return esp32.imu
 
 
-# ── Posture Calibration ───────────────────────────────────────────────
+# ── Calibration & Posture ─────────────────────────────────────────────
 
 def _accel_to_pitch_roll(ax, ay, az):
-    """Derive pitch and roll (degrees) from raw accelerometer readings.
+    """Extract pitch and roll (degrees) from IMU data.
 
-    Assumes sensor is mounted on a backpack with Z pointing up when upright.
+    Note: The ESP32 IMU returns pitch/roll directly (not raw accelerometer values).
+    IMU[0] = pitch (degrees), IMU[1] = roll (degrees), IMU[2] = Z (not used).
     """
-    # avoid division by zero
-    g = math.sqrt(ax * ax + ay * ay + az * az) or 1.0
-    pitch = math.degrees(math.asin(max(-1.0, min(1.0, ax / g))))
-    roll  = math.degrees(math.asin(max(-1.0, min(1.0, ay / g))))
-    return pitch, roll
+    return float(ax), float(ay)
+
+
+def run_calibration(esp32, duration_secs=CALIBRATION_SECS):
+    """Collect ToF + IMU samples over *duration_secs* while user stands still.
+
+    Returns:
+        (tof_baseline, baseline_pitch, baseline_roll) on success, or None.
+        tof_baseline is [L_mm, R_mm] average ground distances.
+    """
+    if esp32 is None:
+        return None
+
+    tof_l, tof_r = [], []
+    pitches, rolls = [], []
+    poll_interval = 1.0 / CALIBRATION_POLL_HZ
+    end_time = time.time() + duration_secs
+
+    while time.time() < end_time:
+        tof = esp32.tof
+        if tof is not None:
+            sectors = tof_grid_to_sectors(tof)
+            if sectors is not None:
+                if sectors[0] is not None:
+                    tof_l.append(sectors[0])
+                if sectors[1] is not None:
+                    tof_r.append(sectors[1])
+
+        imu = esp32.imu
+        if imu is not None and len(imu) >= 3:
+            p, r = _accel_to_pitch_roll(imu[0], imu[1], imu[2])
+            pitches.append(p)
+            rolls.append(r)
+
+        time.sleep(poll_interval)
+
+    if not tof_l or not tof_r or not pitches:
+        return None
+
+    tof_baseline = [sum(tof_l) / len(tof_l), sum(tof_r) / len(tof_r)]
+    baseline_pitch = sum(pitches) / len(pitches)
+    baseline_roll  = sum(rolls) / len(rolls)
+
+    print(f"[calibration] ToF baseline: L={tof_baseline[0]:.0f}mm R={tof_baseline[1]:.0f}mm "
+          f"({len(tof_l)} samples)")
+    print(f"[calibration] IMU baseline: pitch={baseline_pitch:+.1f}° roll={baseline_roll:+.1f}° "
+          f"({len(pitches)} samples)")
+    # Debug: show first IMU reading to check units
+    if esp32 is not None and esp32.imu is not None:
+        imu_raw = esp32.imu
+        p_test, r_test = _accel_to_pitch_roll(imu_raw[0], imu_raw[1], imu_raw[2])
+        print(f"[calibration] DEBUG - Raw IMU[0:3]={imu_raw[0]:.1f}, {imu_raw[1]:.1f}, {imu_raw[2]:.1f} => pitch={p_test:.1f}° roll={r_test:.1f}°")
+
+    return tof_baseline, baseline_pitch, baseline_roll
 
 
 class PostureMonitor:
-    """Continuously monitors posture via IMU and auto-calibrates.
+    """Monitors posture deviation from a pre-calibrated IMU baseline."""
 
-    Create once at startup, then call update(imu_data) every frame.
-    The first CALIBRATION_HOLD_SECS of stable IMU readings become the
-    baseline.  After that, drift beyond tolerance sets tof_suppressed.
-    """
+    SLOUCH_GRACE_SECS = 0.5
 
-    # seconds of sustained bad posture before suppressing ToF
-    SLOUCH_GRACE_SECS = 1.5
-
-    def __init__(self, speaker=None,
+    def __init__(self, baseline_pitch, baseline_roll,
                  pitch_tol=CALIBRATION_PITCH_TOLERANCE,
-                 roll_tol=CALIBRATION_ROLL_TOLERANCE,
-                 hold_secs=CALIBRATION_HOLD_SECS):
-        self._speaker = speaker
+                 roll_tol=CALIBRATION_ROLL_TOLERANCE):
+        self.baseline_pitch = baseline_pitch
+        self.baseline_roll = baseline_roll
         self._pitch_tol = pitch_tol
         self._roll_tol = roll_tol
-        self._hold_secs = hold_secs
-
-        # Baseline (set once auto-calibration completes)
-        self.baseline_pitch = None
-        self.baseline_roll = None
-        self.baseline_az = None
-        self._calibrated = False
-
-        # Auto-calibration state
-        self._cal_start = None
-        self._cal_pitch = None
-        self._cal_roll = None
-        self._cal_az = None
-        self._cal_announced = False
-
-        # Runtime posture state
         self._posture_ok = True
         self._slouch_start = None
 
-    # ── public state ──
-
-    @property
-    def calibrated(self):
-        return self._calibrated
-
     @property
     def posture_ok(self):
-        """True when user orientation is within tolerance of baseline."""
         return self._posture_ok
 
     @property
     def tof_suppressed(self):
-        """True when bad posture has persisted past the grace period."""
-        if not self._calibrated or self._posture_ok or self._slouch_start is None:
+        if self._posture_ok or self._slouch_start is None:
             return False
         return (time.time() - self._slouch_start) >= self.SLOUCH_GRACE_SECS
 
-    # ── per-frame update ──
-
     def update(self, imu_data):
-        """Feed an IMU reading.  Handles auto-calibration then monitoring.
-
-        Returns True if the posture state *changed* (OK→bad or bad→OK),
-        so the caller can trigger a TTS warning only on transitions.
-        """
+        """Feed IMU reading. Returns True if posture state changed."""
         if imu_data is None or len(imu_data) < 3:
             return False
 
         pitch, roll = _accel_to_pitch_roll(imu_data[0], imu_data[1], imu_data[2])
-        az = imu_data[2]
 
-        # ── Phase 1: auto-calibration ──
-        if not self._calibrated:
-            return self._auto_calibrate(pitch, roll, az)
-
-        # ── Phase 2: runtime monitoring ──
         delta_pitch = abs(pitch - self.baseline_pitch)
         delta_roll = abs(roll - self.baseline_roll)
 
@@ -392,43 +406,5 @@ class PostureMonitor:
             self._slouch_start = time.time()
 
         return self._posture_ok != was_ok
-
-    # ── internals ──
-
-    def _auto_calibrate(self, pitch, roll, az):
-        """Accumulate stable readings until hold time is met."""
-        within_tol = (abs(pitch) <= self._pitch_tol and
-                      abs(roll) <= self._roll_tol)
-
-        if within_tol:
-            if self._cal_start is None:
-                self._cal_start = time.time()
-                self._cal_pitch = pitch
-                self._cal_roll = roll
-                self._cal_az = az
-                print(f"[posture] Good posture detected (pitch={pitch:+.1f}° roll={roll:+.1f}°)")
-
-            if (time.time() - self._cal_start) >= self._hold_secs:
-                self.baseline_pitch = self._cal_pitch
-                self.baseline_roll = self._cal_roll
-                self.baseline_az = self._cal_az
-                self._calibrated = True
-                print(f"[posture] Calibrated: {self}")
-                if self._speaker:
-                    self._speaker.say("Posture calibrated")
-                return False
-        else:
-            self._cal_start = None
-            if not self._cal_announced:
-                self._cal_announced = True
-                print(f"[posture] Waiting for stable posture (pitch={pitch:+.1f}° roll={roll:+.1f}°)")
-
-        return False
-
-    def __repr__(self):
-        if not self._calibrated:
-            return "PostureMonitor(uncalibrated)"
-        return (f"PostureMonitor(baseline_pitch={self.baseline_pitch:+.1f}°, "
-                f"baseline_roll={self.baseline_roll:+.1f}°, az={self.baseline_az:.2f})")
 
 

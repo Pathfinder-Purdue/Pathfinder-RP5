@@ -18,7 +18,7 @@ from indoor_nav.models import load_yolo, load_midas, run_yolo, run_midas
 from indoor_nav.sensors import (
     ESP32Reader, read_tof_ground_risk, read_imu,
     init_lidar, stop_lidar, read_lidar_sectors,
-    PostureMonitor,
+    PostureMonitor, run_calibration,
 )
 from indoor_nav.detection import normalize_depth, midas_sector_risks, scored_yolo_obstacles
 from indoor_nav.risk_engine import fuse_sector_risks, RiskSmoother
@@ -226,8 +226,22 @@ def main():
     speaker.start()
     last_spoken_command = None
 
-    # Posture monitor (auto-calibrates from first stable IMU readings)
-    posture = PostureMonitor(speaker=speaker)
+    # ── Calibration period ──
+    print("[integrated] Starting calibration ...")
+    speaker.say("Calibration started, hold still and stand upright")
+    time.sleep(1.5)  # let speech finish and user settle
+
+    cal_result = run_calibration(esp32)
+    if cal_result is not None:
+        tof_baseline, baseline_pitch, baseline_roll = cal_result
+        posture = PostureMonitor(baseline_pitch, baseline_roll)
+    else:
+        tof_baseline = None
+        posture = None
+        print("[integrated] WARNING -- calibration failed (no ESP32 data)")
+
+    speaker.say("Calibration ended, Pathfinder online")
+    print("[integrated] Pathfinder online")
 
     fps_buf = deque(maxlen=30)
     t_prev  = time.time()
@@ -332,16 +346,17 @@ def main():
             hz_lidar.tick()
 
         # Read ESP32 sensors — tick Hz on new data
-        tof_risks = read_tof_ground_risk(esp32)       # [L,R] ground risk
+        tof_risks = read_tof_ground_risk(esp32, tof_baseline)  # [L,R] ground risk
         imu_data  = read_imu(esp32)                   # [ax,ay,az,gx,gy,gz]
         gps_data  = esp32.gps if esp32 is not None else None
 
         # Continuous posture monitoring — suppress ToF when slouching
-        posture_changed = posture.update(imu_data)
-        if posture_changed and not posture.posture_ok:
-            speaker.say("Straighten your posture")
-        elif posture_changed and posture.posture_ok:
-            speaker.say("Posture restored")
+        if posture is not None:
+            posture_changed = posture.update(imu_data)
+            if posture_changed and not posture.posture_ok:
+                speaker.say("Straighten your posture")
+            elif posture_changed and posture.posture_ok:
+                speaker.say("Posture restored")
 
         if esp32 is not None:
             s = esp32.tof_seq
@@ -372,7 +387,7 @@ def main():
         # 5-zone motor output: [LB, L, C, R, RB]
         motor_raw = [tof_lb * 100.0, risks[0] * 100.0, risks[1] * 100.0,
                      risks[2] * 100.0, tof_rb * 100.0]
-        if posture.tof_suppressed:
+        if posture is not None and posture.tof_suppressed:
             # Pulse all motors when posture is bad
             pulse_on = int(time.time() * 2) % 2 == 0
             motor_vals = [100, 100, 100, 100, 100] if pulse_on else [0, 0, 0, 0, 0]
