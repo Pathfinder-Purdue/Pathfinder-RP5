@@ -1,7 +1,6 @@
 import lidar.backend as backend
 import threading
 import time
-import glob
 
 
 

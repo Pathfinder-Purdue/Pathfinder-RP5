@@ -26,7 +26,7 @@ except ImportError:
 
 try:
     from lidar.api import Lidar
-    from haptic_zones import get_haptic_zones_5
+    from haptic_zones import get_haptic_zones
     _lidar_available = True
 except (ImportError, ModuleNotFoundError):
     _lidar_available = False
@@ -73,7 +73,7 @@ def stop_lidar():
 
 
 def read_lidar_sectors():
-    """Read LiDAR sectors [LB, L, C, R, RB] as 0.0-1.0 risk values.
+    """Read LiDAR sectors [L, C, R] as 0.0-1.0 risk values.
 
     Uses the persistent instance -- call init_lidar() first.
     Haptic zone values are returned on a 0-100 scale; this function
@@ -85,9 +85,8 @@ def read_lidar_sectors():
         data = _lidar_instance.read()
         if len(data) == 0:
             return None
-        h = get_haptic_zones_5(data)
-        return [h['left_bottom'] / 100.0, h['left'] / 100.0, h['center'] / 100.0,
-                h['right'] / 100.0, h['right_bottom'] / 100.0]
+        h = get_haptic_zones(data)
+        return [h['left'] / 100.0, h['center'] / 100.0, h['right'] / 100.0]
     except Exception:
         return None
 

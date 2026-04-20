@@ -3,7 +3,6 @@ Copied from lidar/api.py with additional haptic feedback implementation.
 This file is isolated for easy copying to other branches.
 """
 
-import threading
 import time
 
 
@@ -65,37 +64,6 @@ class HapticOutputLimiter:
         return out
 
 
-class LidarData:
-    """
-    Container for LIDAR scan results.
-    Dict of all angles (0-360 deg) -> (distance in mm, quality)
-    """
-    def __init__(self, data):
-        self.data = {}
-        for angle, (distance, quality) in sorted(data.items()):
-            if distance is not None:
-                distance = float(distance)
-            self.data[float(angle)] = (distance, int(quality))
-
-    def __iter__(self):
-        return iter(self.data.items())
-
-    def __getitem__(self, angle):
-        return self.data[angle]
-    
-    def __len__(self):
-        return len(self.data)
-
-    def keys(self):
-        return self.data.keys()
-
-    def values(self):
-        return self.data.values()
-
-    def items(self):
-        return self.data.items()
-
-
 def get_haptic_zones(lidar_data, max_distance=3000.0, full_blast_threshold=1500.0):
     """
     Extract haptic vibration values from LIDAR data for a wearable device.
@@ -143,7 +111,7 @@ def get_haptic_zones(lidar_data, max_distance=3000.0, full_blast_threshold=1500.
         else:  # Range wraps around 360
             return angle >= start or angle <= end
     
-    def distance_to_vibration(distance_mm, max_dist, threshold):
+    def distance_to_vibration(distance_mm):
         """Convert distance in mm to vibration intensity (0-100) using quadratic ramp."""
         if distance_mm is None:
             return 0.0
@@ -178,7 +146,7 @@ def get_haptic_zones(lidar_data, max_distance=3000.0, full_blast_threshold=1500.
                     closest_distance = distance
         
         # Convert to vibration intensity
-        vibration = distance_to_vibration(closest_distance, max_distance, full_blast_threshold)
+        vibration = distance_to_vibration(closest_distance)
         result[zone_name] = vibration
         result[f'{zone_name}_distance'] = closest_distance
     

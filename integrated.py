@@ -106,16 +106,16 @@ _RED   = (0, 60, 255)
 _WHITE = (220, 220, 220)
 
 
-def _draw_lidar_status(frame, lidar_5, hz):
-    """Draw LiDAR [LB, L, C, R, RB] risk values in the top-right corner."""
+def _draw_lidar_status(frame, lidar_3, hz):
+    """Draw LiDAR [L, C, R] risk values in the top-right corner."""
     x = frame.shape[1] - 310
     y = 18
-    if lidar_5 is not None:
-        peak = max(lidar_5)
+    if lidar_3 is not None:
+        peak = max(lidar_3)
         color = _RED if peak > 0.7 else _GREEN
         cv2.putText(frame,
-                    f"LiDAR [{hz:.1f}Hz]: LB={lidar_5[0]:.0%} L={lidar_5[1]:.0%} C={lidar_5[2]:.0%} R={lidar_5[3]:.0%} RB={lidar_5[4]:.0%}",
-                    (x, y), _FONT, 0.34, color, 1, cv2.LINE_AA)
+                    f"LiDAR [{hz:.1f}Hz]: L={lidar_3[0]:.0%} C={lidar_3[1]:.0%} R={lidar_3[2]:.0%}",
+                    (x, y), _FONT, 0.38, color, 1, cv2.LINE_AA)
     else:
         cv2.putText(frame, f"LiDAR [{hz:.1f}Hz]: waiting ...",
                     (x, y), _FONT, 0.38, _RED, 1, cv2.LINE_AA)
@@ -216,8 +216,7 @@ def main():
     smoother = RiskSmoother()
     risks    = [0.0, 0.0, 0.0]
 
-    lidar_5      = None
-    lidar_inner  = None
+    lidar_sectors = None
     tof_risks    = None
     imu_data     = None
     gps_data     = None
@@ -328,12 +327,9 @@ def main():
             continue
 
         # Read LiDAR sectors
-        lidar_5 = read_lidar_sectors()                 # [LB,L,C,R,RB] 0-1 risk
-        if lidar_5 is not None:
+        lidar_sectors = read_lidar_sectors()            # [L,C,R] 0-1 risk
+        if lidar_sectors is not None:
             hz_lidar.tick()
-            lidar_inner  = lidar_5[1:4]                # [L,C,R] for fusion
-        else:
-            lidar_inner  = None
 
         # Read ESP32 sensors — tick Hz on new data
         tof_risks = read_tof_ground_risk(esp32)       # [L,R] ground risk
@@ -366,7 +362,7 @@ def main():
         midas_risks_vec = midas_sector_risks(depth_normed)
         yolo_obstacles  = scored_yolo_obstacles(yolo_results, depth_normed, FRAME_WIDTH)
         raw_risks       = fuse_sector_risks(midas_risks_vec, yolo_obstacles,
-                                            lidar_sectors=lidar_inner)
+                                            lidar_sectors=lidar_sectors)
         risks    = smoother.update(raw_risks)
 
         # ToF → LB/RB risks (ground-level only)
@@ -402,7 +398,7 @@ def main():
         if args.viz:
             vis = frame.copy()
             draw_yolo_boxes(vis, yolo_results, yolo_obstacles, depth_normed=depth_normed)
-            _draw_lidar_status(vis, lidar_5, hz_lidar.hz)
+            _draw_lidar_status(vis, lidar_sectors, hz_lidar.hz)
             _draw_esp32_status(vis, tof_risks, imu_data, gps_data,
                                hz_tof.hz, hz_imu.hz, hz_gps.hz)
             _draw_pipeline_status(vis, hz_cam.hz, hz_yolo.hz, hz_midas.hz)

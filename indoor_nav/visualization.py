@@ -3,7 +3,7 @@
 import cv2
 import numpy as np
 
-from indoor_nav.config import PROX_NEAR, PROX_MID, PANEL_HEIGHT
+from indoor_nav.config import PANEL_HEIGHT
 
 
 # color palette (BGR)
