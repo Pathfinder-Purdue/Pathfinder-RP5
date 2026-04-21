@@ -30,9 +30,9 @@ def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"[indoor] device: {device}")
 
-    print("[indoor] Loading YOLO …")
+    print("[indoor] Loading YOLO ...")
     yolo_model = load_yolo()
-    print("[indoor] Loading MiDaS …")
+    print("[indoor] Loading MiDaS ...")
     midas_model, midas_transform = load_midas(device)
     print("[indoor] Models ready.")
 
@@ -40,7 +40,7 @@ def main():
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, FRAME_WIDTH)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, FRAME_HEIGHT)
     if not cap.isOpened():
-        sys.exit("[indoor] ERROR — could not open camera")
+        sys.exit("[indoor] ERROR -- could not open camera")
 
     # pipeline components
     fsm = NavigationFSM()
@@ -107,7 +107,7 @@ def main():
     t_capture.start()
     t_infer.start()
 
-    print("[indoor] Streaming — press 'q' to quit")
+    print("[indoor] Streaming -- press 'q' to quit")
 
     # frame loop
     while not stop_event.is_set():
@@ -124,17 +124,17 @@ def main():
         lidar = read_lidar_sectors()
         tof   = read_tof_sectors()
 
-        # fuse everything into sector risks
+        # fuse all inputs into sector risks
         depth_normed    = normalize_depth(depth_map)
         midas_risks_vec = midas_sector_risks(depth_normed)
         yolo_obstacles  = scored_yolo_obstacles(yolo_results, depth_normed, FRAME_WIDTH)
         raw_risks       = fuse_sector_risks(midas_risks_vec, yolo_obstacles, lidar, tof)
         risks           = smoother.update(raw_risks)
 
-        # get nav command from FSM
+        # get command from FSM
         decision = fsm.update(risks)
 
-        # draw everything
+        # draw overlays and telemetry
         vis = frame.copy()
         draw_depth_overlay(vis, depth_map, alpha=0.25)
         draw_yolo_boxes(vis, yolo_results, yolo_obstacles)

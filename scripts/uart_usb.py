@@ -7,7 +7,7 @@ BAUD = 115200
 
 
 def find_usb_serial_port():
-    # """Auto-detect the USB-to-UART converter port."""
+    # optional auto-detection code for USB UART port
     # ports = serial.tools.list_ports.comports()
     # usb_ports = [p for p in ports if "USB" in p.device or "ACM" in p.device]
     # if usb_ports:
@@ -15,7 +15,7 @@ def find_usb_serial_port():
     #     for p in usb_ports:
     #         print(f"  {p.device} - {p.description}")
     #     return usb_ports[0].device
-    # # Fallback
+    # fallback
     # print("No USB serial port auto-detected, falling back to /dev/ttyUSB0")
     # return "/dev/ttyUSB0"
     return "/dev/serial/by-id/usb-FTDI_FT232R_USB_UART_00000000-if00-port0"

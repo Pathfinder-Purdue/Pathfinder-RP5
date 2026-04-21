@@ -1,6 +1,6 @@
-"""Sensor functions for LiDAR, ToF (via ESP32), and IMU.
+"""Sensor helpers for LiDAR, ToF (via ESP32), and IMU.
 
-LiDAR is managed as a persistent instance — call init_lidar() once at startup.
+LiDAR is managed as a persistent instance. Call init_lidar() once at startup.
 ESP32Reader runs a background UART thread to receive ToF / IMU / GPS packets.
 """
 
@@ -31,7 +31,7 @@ except (ImportError, ModuleNotFoundError):
     _lidar_available = False
 
 
-# Persistent LiDAR
+# persistent LiDAR instance
 
 _lidar_instance = None
 _lidar_lock = threading.Lock()
@@ -74,7 +74,7 @@ def stop_lidar():
 def read_lidar_sectors():
     """Read LiDAR sectors [L, C, R] as 0.0-1.0 risk values.
 
-    Uses the persistent instance -- call init_lidar() first.
+    Uses the persistent instance. Call init_lidar() first.
     Haptic zone values are returned on a 0-100 scale; this function
     normalises them back to 0.0-1.0 for the risk engine.
     """
@@ -90,7 +90,7 @@ def read_lidar_sectors():
         return None
 
 
-# ── ESP32 UART Reader ─────────────────────────────────────────────────
+# esp32 UART reader
 
 class ESP32Reader:
     """Background thread that reads and parses ESP32 UART messages.
@@ -106,9 +106,9 @@ class ESP32Reader:
         self._thread = None
         self._stop_event = threading.Event()
         self._lock = threading.Lock()
-        self._tof = None   # list[int]  — 16 values, mm
-        self._imu = None   # list[float] — 6 values
-        self._gps = None   # list[float] — 3 values
+        self._tof = None   # list[int], 16 values in mm
+        self._imu = None   # list[float], 6 values
+        self._gps = None   # list[float], 3 values
         self._tof_seq = 0
         self._imu_seq = 0
         self._gps_seq = 0
@@ -116,7 +116,7 @@ class ESP32Reader:
     def start(self):
         """Open the serial port and launch the reader thread."""
         if not _serial_available:
-            print("[sensors] pyserial not installed — ESP32 reader disabled")
+            print("[sensors] pyserial not installed -- ESP32 reader disabled")
             return False
         try:
             self._ser = _serial.Serial(
@@ -148,7 +148,7 @@ class ESP32Reader:
                 pass
         print("[sensors] ESP32 reader stopped")
 
-    # ── background loop ──
+    # background loop
 
     def _reader_loop(self):
         while not self._stop_event.is_set():
@@ -197,7 +197,7 @@ class ESP32Reader:
                 self._gps = gps
                 self._gps_seq += 1
 
-    # ── public properties ──
+    # public properties
 
     @property
     def tof(self):
@@ -246,9 +246,9 @@ class ESP32Reader:
         self.write(','.join(str(int(v)) for v in motor_vals))
 
 
-# ToF ground-level processing
+# tof ground-level processing
 
-# 4x4 grid -> L / R column mapping
+# 4x4 grid to left and right column mapping.
 _TOF_LEFT_IDX  = [2, 3, 6, 7, 10, 11, 14, 15]           # columns 0-1
 _TOF_RIGHT_IDX = [0, 1, 4, 5, 8, 9, 12, 13]          # columns 2-3
 
@@ -301,7 +301,7 @@ def read_imu(esp32):
     return esp32.imu
 
 
-# ── Calibration & Posture ─────────────────────────────────────────────
+# calibration and posture
 
 def _accel_to_pitch_roll(ax, ay, az):
     """Extract pitch and roll (degrees) from IMU data.
@@ -356,7 +356,7 @@ def run_calibration(esp32, duration_secs=CALIBRATION_SECS):
           f"({len(tof_l)} samples)")
     print(f"[calibration] IMU baseline: pitch={baseline_pitch:+.1f}° roll={baseline_roll:+.1f}° "
           f"({len(pitches)} samples)")
-    # Debug: show first IMU reading to check units
+    # debug: print one IMU sample to confirm units
     if esp32 is not None and esp32.imu is not None:
         imu_raw = esp32.imu
         p_test, r_test = _accel_to_pitch_roll(imu_raw[0], imu_raw[1], imu_raw[2])

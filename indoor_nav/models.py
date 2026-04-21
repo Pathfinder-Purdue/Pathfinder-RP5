@@ -1,4 +1,4 @@
-"""Handles loading and running:
+"""Helpers for loading and running:
   YOLOv8  (object detection)
   MiDaS   (monocular depth estimation)
 """

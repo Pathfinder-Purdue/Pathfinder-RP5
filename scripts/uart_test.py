@@ -2,7 +2,7 @@ import serial
 import threading
 import time
 
-PORT = "/dev/ttyAMA0"   # On Pi 5 with uart0-pi5 this is usually the GPIO UART. GPIO pins 14 (TX) and 15 (RX) are used for this UART. Make sure to connect TX to RX and RX to TX between the Pi and ESP32.
+PORT = "/dev/ttyAMA0"   # on Pi 5 with uart0-pi5, this is usually the GPIO UART on pins 14 (TX) and 15 (RX). Connect TX<->RX between Pi and ESP32
 BAUD = 9600
 
 def read_from_esp(ser):
@@ -14,9 +14,9 @@ def read_from_esp(ser):
                 data = ser.read_until(b'\n')
                 if data:
                     data = data.decode('ascii', errors='replace').strip()
-                    data = data.replace(';', '\n')  # Replace semicolons with newlines for better readability
+                    data = data.replace(';', '\n')  # replace semicolons with newlines
                     print(f"[ESP32 -> Pi] {data}")
-                    # Timing analysis
+                    # timing stats
                     current_time = time.time()
                     if last_msg_time is not None:
                         elapsed = current_time - last_msg_time
@@ -34,9 +34,9 @@ def write_to_esp(ser):
     while True:
         try:
             # msg = input("[Pi -> ESP32] Enter message (or '1', '2', ... for examples): ")
-            msg = f"{num},20,30,40,50"  # Example message to send
-            num = (num + 1) % 101  # Increment num for next message
-            time.sleep(0.1)  # Simulate delay between messages
+            msg = f"{num},20,30,40,50"  # example message
+            num = (num + 1) % 101  # increment value for next message
+            time.sleep(0.1)  # simulate delay between messages
             # if msg == "1":
             #     msg = "10,20,30,40,50"
             #     print(f" > Sending example message: {msg}")

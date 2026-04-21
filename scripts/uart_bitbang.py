@@ -15,7 +15,7 @@ import time
 TX_PIN = 17
 RX_PIN = 27
 BAUD = 9600
-BIT_TIME = 1.0 / BAUD  # ~104.17 µs at 9600
+BIT_TIME = 1.0 / BAUD  # ~104.17 us at 9600
 CHIP = "/dev/gpiochip4"  # Pi 5 main GPIO chip
 
 
@@ -50,7 +50,7 @@ class BitBangUART:
 
         self._tx_lock = threading.Lock()
 
-    # ── TX ──────────────────────────────────────────────────────
+    # TX
 
     def _write_byte(self, byte: int):
         bt = self.bit_time
@@ -83,7 +83,7 @@ class BitBangUART:
             for b in data:
                 self._write_byte(b)
 
-    # ── RX ──────────────────────────────────────────────────────
+    # RX
 
     def _read_byte(self) -> int | None:
         """Block until a start bit is detected, then clock in 8 bits."""
@@ -149,7 +149,7 @@ class BitBangUART:
         self._chip.close()
 
 
-# ── Application logic (mirrors uart_test.py) ───────────────────
+# Application logic (same flow as uart_test.py)
 
 def read_from_esp(uart: BitBangUART):
     last_msg_time = time.time()

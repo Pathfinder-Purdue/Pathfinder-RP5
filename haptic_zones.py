@@ -1,6 +1,6 @@
-"""
-Copied from lidar/api.py with additional haptic feedback implementation.
-This file is isolated for easy copying to other branches.
+"""Haptic zone mapping and motor output limiting.
+
+This module stays mostly self-contained so it is easy to reuse elsewhere.
 """
 
 import time
@@ -11,18 +11,17 @@ from indoor_nav.config import (
 )
 
 
-# ── Slew-rate limiter ──────────────────────────────────────────────────
+# slew-rate limiter
 
-# Maximum change in motor value (0-100) allowed per second.
-# At ~10 Hz updates this is ~25 per tick → 0→100 in ~0.4 s (responsive
-# but no instantaneous current spike).
+# max motor change per second in the 0-100 scale
+# at ~10 Hz this is about 25 per tick, so 0 to 100 takes about 0.4s
 MAX_MOTOR_SLEW_RATE = 300          # units per second
 NUM_ZONES   = 3
 MAX_ACTIVE_MOTORS = 3
 
-#  HAPTIC MOTOR OUTPUT LIMITS
-# Raw vibration intent is produced in 0-100, then remapped before UART output.
-# 1) [0, MOTOR_INTENSITY_DEADZONE] -> 0 (deadzone)
+# haptic motor output limits
+# raw intent starts at 0-100 and is remapped before UART output
+# 1) [0, MOTOR_INTENSITY_DEADZONE] -> 0
 # 2) (MOTOR_INTENSITY_DEADZONE, 100] -> [MIN_MOTOR_INTENSITY, MAX_MOTOR_INTENSITY]
 MOTOR_INTENSITY_DEADZONE = 25.0
 MIN_MOTOR_INTENSITY = 5.0
@@ -30,18 +29,18 @@ MAX_MOTOR_INTENSITY = 50.0
 
 
 class HapticOutputLimiter:
-    """Rate-limits and remaps motor values to protect hardware.
+    """Rate-limit and remap motor values to protect hardware.
 
     Each call to ``limit()`` returns adjusted motor values whose per-step
-    change is bounded by *MAX_MOTOR_SLEW_RATE × dt* so that even if the
-    raw input jumps from 0 → 100 the actual output ramps up smoothly.
+    change is bounded by *MAX_MOTOR_SLEW_RATE * dt* so even a jump from
+    0 to 100 ramps up smoothly.
 
     Input intent values are first clamped to 0-100 and remapped to motor-safe
     output using:
     - [0, deadzone] -> 0
     - (deadzone, 100] -> [min_intensity, max_intensity] linearly
 
-    The limiter is **time-based** so it adapts to varying loop rates.
+    The limiter is time-based, so it adapts to loop timing changes.
     """
 
     def __init__(self, num_zones: int = NUM_ZONES,
@@ -103,7 +102,7 @@ class HapticOutputLimiter:
         raw = self._keep_strongest_targets(raw)
         now = time.monotonic()
         if self._last_t is None:
-            # First call — accept values directly (no spike on boot)
+            # on the first call, accept the value directly
             dt = 0.0
         else:
             dt = now - self._last_t
@@ -128,12 +127,10 @@ class HapticOutputLimiter:
 
 
 def get_haptic_zones(lidar_data):
-    """
-    Extract haptic vibration values from LIDAR data for a wearable device.
+    """Get left, center, and right haptic levels from LiDAR data.
     
-    Divides the front field of view into 3 zones (left, center, right)
-    and returns normalized vibration intensities for each.
-    Center and side zones use separate distance thresholds from config.
+    The front field of view is split into three zones. Each zone gets a
+    vibration value in the range 0-100.
     
     Args:
         lidar_data (LidarData): LIDAR scan data object
@@ -148,7 +145,7 @@ def get_haptic_zones(lidar_data):
             'right_distance': closest distance in right zone (mm) or None
         }
     
-    Zone layout (assuming forward = 0 degrees):
+    Zone layout (forward is 0 degrees):
         - Left: 290-345 degrees (55 degree span)
         - Center: 345-15 degrees (30 degree span, wraps around 0)
         - Right: 15-70 degrees (55 degree span)
@@ -163,14 +160,14 @@ def get_haptic_zones(lidar_data):
         return angle % 360.0
     
     def angle_in_range(angle, start, end):
-        """Check if angle is in range, accounting for wraparound."""
+        """Check if angle is in range, including wraparound."""
         angle = normalize_angle(angle)
         start = normalize_angle(start)
         end = normalize_angle(end)
         
         if start <= end:
             return start <= angle <= end
-        else:  # Range wraps around 360
+        else:  # range wraps around 360
             return angle >= start or angle <= end
     
     def distance_to_vibration(distance_mm, max_distance_m, threshold_m):
@@ -180,22 +177,22 @@ def get_haptic_zones(lidar_data):
         
         distance_m = distance_mm / 1000.0
         
-        # Clamp normalized distance to [0, 1]
+        # clamp normalized distance to [0, 1]
         x = (max_distance_m - distance_m) / (max_distance_m - threshold_m)
         x = max(0.0, min(1.0, x))
         
-        # Apply quadratic function, scale to 0-100
+        # apply quadratic curve and scale to 0-100
         vibration = (x ** 2) * 100.0
         return vibration
     
-    # Per-zone distance thresholds (centre vs side)
+    # per-zone distance thresholds (center vs side)
     zone_thresholds = {
         'left':   (DIST_FAR_SIDE_M,   DIST_NEAR_SIDE_M),
         'center': (DIST_FAR_CENTER_M, DIST_NEAR_CENTER_M),
         'right':  (DIST_FAR_SIDE_M,   DIST_NEAR_SIDE_M),
     }
 
-    # Define the three zones
+    # define the three zones
     zones = {
         'left': (290, 345),      # Left zone: 290-345 degrees
         'center': (345, 15),     # Center zone: 345-15 (wraps around)
@@ -205,14 +202,14 @@ def get_haptic_zones(lidar_data):
     result = {}
     
     for zone_name, (start, end) in zones.items():
-        # Find closest distance in this zone
+        # find the closest distance in this zone
         closest_distance = None
         for angle, (distance, quality) in lidar_data.items():
             if angle_in_range(angle, start, end) and distance is not None:
                 if closest_distance is None or distance < closest_distance:
                     closest_distance = distance
         
-        # Convert to vibration intensity
+        # convert distance to vibration intensity
         far_m, near_m = zone_thresholds[zone_name]
         vibration = distance_to_vibration(closest_distance, far_m, near_m)
         result[zone_name] = vibration

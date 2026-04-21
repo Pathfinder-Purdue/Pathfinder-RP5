@@ -9,8 +9,8 @@ LIDAR_BAUDRATE = 460800
 
 class LidarData:
     """
-    Container for LIDAR scan results.
-    Dict of all angles (0-360 deg) -> (distance in mm, quality)
+    Container for LiDAR scan results.
+    Maps angle (0-360 deg) to (distance in mm, quality).
     """
     def __init__(self, data):
         self.data = {}
@@ -39,7 +39,7 @@ class LidarData:
 
 class Lidar:
     """
-    Clean API for accessing LIDAR functions from other programs.
+    Simple API for using LiDAR functions from other modules.
     Usage:
         lidar = Lidar()
         lidar.start()
@@ -70,7 +70,7 @@ class Lidar:
                 backend.stop_scanner()
                 self._running = False
 
-# Example usage
+# example usage
 if __name__ == "__main__":
     lidar = Lidar()
     lidar.start()

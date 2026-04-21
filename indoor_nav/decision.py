@@ -1,4 +1,4 @@
-"""Decision engine: fused sector risks → navigation commands.
+"""Decision engine: fused sector risks to navigation commands.
 
 Pipeline:
   1. Score three candidate directions (LEFT, FORWARD, RIGHT) from fused [L,C,R] risks.
@@ -51,13 +51,12 @@ class NavigationFSM:
         self._apply_with_dwell_gate(candidate)
         return self._build_decision(risks)
 
-    # -- direction selection --
-
+    # direction selection
     def _pick_direction(self, risks):
         """Score LEFT / FORWARD / RIGHT, return best FSM state."""
         left, center, right = risks
 
-        # candidate directions sorted safest-first
+        # candidate directions sorted safest first
         candidates = [
             ("AVOID_LEFT",  left),
             ("CRUISE",      center),
@@ -66,7 +65,7 @@ class NavigationFSM:
         candidates.sort(key=lambda x: x[1])
 
         for state, risk in candidates:
-            # too dangerous in this direction
+            # skip directions that are too risky
             if risk >= self._eff_threshold("STOPPED", STOP_THRESHOLD):
                 continue
 
@@ -79,8 +78,7 @@ class NavigationFSM:
 
         return "STOPPED"
 
-    # -- thresholds / state machine --
-
+    # thresholds and state machine
     def _eff_threshold(self, state_prefix, base):
         """Lower threshold by HYSTERESIS if already in this state."""
         if self.state.startswith(state_prefix):

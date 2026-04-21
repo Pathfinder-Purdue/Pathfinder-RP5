@@ -32,8 +32,7 @@ from indoor_nav.visualization import (
 from haptic_zones import HapticOutputLimiter
 
 
-# Text-to-speech for navigation decisions
-
+# Text to speech settings for navigation cues
 _SECTOR_NAMES = ["to your left", "ahead", "to your right"]
 _DANGER_OBJECT_PROX_THRESHOLD = 0.70
 _POSTURE_REPEAT_SECS = 2.0
@@ -44,7 +43,7 @@ def _top_threat_phrase(yolo_obstacles, class_names, min_proximity=0.3):
     """Return e.g. 'Person ahead' for the closest YOLO obstacle, or None."""
     if not yolo_obstacles:
         return None
-    # highest proximity = closest threat
+    # higher proximity means the object is closer
     sector, prox, box = max(yolo_obstacles, key=lambda o: o[1])
     if prox < min_proximity:
         return None
@@ -84,8 +83,7 @@ class Speaker:
                 pass
 
 
-# Frequency tracker
-
+# Simple rolling frequency tracker
 class HzTracker:
     """Measures update frequency using a sliding window."""
     def __init__(self, window=30):
@@ -103,7 +101,6 @@ class HzTracker:
 
 
 # ESP32 status overlay
-
 _FONT = cv2.FONT_HERSHEY_SIMPLEX
 _GREEN = (0, 230, 115)
 _RED   = (0, 60, 255)
@@ -172,7 +169,6 @@ def _draw_pipeline_status(frame, hz_cam, hz_yolo, hz_midas):
 
 
 # Main
-
 def main():
     parser = argparse.ArgumentParser(description="Pathfinder integrated pipeline")
     parser.add_argument("--viz", action="store_true", help="Enable OpenCV visualization")
@@ -183,14 +179,14 @@ def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"[integrated] torch device: {device}")
 
-    # Load ML models
+    # load models
     print("[integrated] Loading YOLO ...")
     yolo_model = load_yolo()
     print("[integrated] Loading MiDaS ...")
     midas_model, midas_transform = load_midas(device)
     print("[integrated] Models ready.")
 
-    # Open camera
+    # open camera
     print("[integrated] Opening camera ...")
     cap = cv2.VideoCapture(CAMERA_ID)
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, FRAME_WIDTH)
@@ -201,13 +197,13 @@ def main():
         cap.read()
     print("[integrated] Camera ready.")
 
-    # Start LiDAR
+    # start LiDAR
     print("[integrated] Starting LiDAR ...")
     lidar_ok = init_lidar()
     if not lidar_ok:
         print("[integrated] WARNING -- LiDAR unavailable")
 
-    # Start ESP32 UART reader
+    # start ESP32 UART reader
     print("[integrated] Starting ESP32 reader ...")
     esp32 = ESP32Reader()
     esp32_ok = esp32.start()
@@ -215,7 +211,7 @@ def main():
         print("[integrated] WARNING -- ESP32 unavailable, ToF/IMU/GPS disabled")
         esp32 = None
 
-    # Pipeline state
+    # runtime state
     fsm      = NavigationFSM()
     smoother = RiskSmoother()
     risks    = [0.0, 0.0, 0.0]
@@ -225,14 +221,14 @@ def main():
     imu_data     = None
     gps_data     = None
 
-    # Start TTS speaker
+    # start the TTS worker
     speaker = Speaker()
     speaker.start()
     last_posture_prompt_ts = 0.0
     last_danger_phrase = None
     last_danger_phrase_ts = 0.0
 
-    # ── Calibration period ──
+    # calibration period
     print("[integrated] Starting calibration ...")
     speaker.say("Calibration started, hold still and stand upright")
     time.sleep(1.5)  # let speech finish and user settle
@@ -252,7 +248,7 @@ def main():
     fps_buf = deque(maxlen=30)
     t_prev  = time.time()
 
-    # Hz trackers for each peripheral
+    # frequency trackers for each sensor path
     hz_cam   = HzTracker()
     hz_yolo  = HzTracker()
     hz_midas = HzTracker()
@@ -261,7 +257,7 @@ def main():
     hz_imu   = HzTracker()
     hz_gps   = HzTracker()
 
-    # Seq counters to detect new ESP32 data
+    # sequence counters for new ESP32 samples
     prev_tof_seq = 0
     prev_imu_seq = 0
     prev_gps_seq = 0
@@ -275,7 +271,7 @@ def main():
     data_lock  = Lock()
     stop_event = Event()
 
-    # Camera capture thread
+    # camera capture thread
     def capture_worker():
         """Continuously grab frames so capture is not blocked by inference."""
         consecutive_fails = 0
@@ -296,7 +292,7 @@ def main():
                 shared["latest_frame"] = frame
                 shared["capture_count"] += 1
 
-    # Inference thread (YOLO + MiDaS)
+    # inference thread (YOLO + MiDaS)
     def inference_worker():
         """Run YOLO / MiDaS on latest frame with staggered scheduling."""
         last_seen = -1
@@ -324,7 +320,7 @@ def main():
                     if depth_out is not None:
                         shared["depth_map"] = depth_out
 
-    # Launch threads
+    # launch worker threads
     t_cap = Thread(target=capture_worker,  name="capture-worker",  daemon=True)
     t_inf = Thread(target=inference_worker, name="inference-worker", daemon=True)
     t_cap.start()
@@ -333,9 +329,9 @@ def main():
 
     motor_limiter = HapticOutputLimiter(num_zones=5)
 
-    # Main frame loop
+    # main frame loop
     while not stop_event.is_set():
-        # Grab latest frame + inference results
+        # read latest frame and inference outputs
         with data_lock:
             frame = (None if shared["latest_frame"] is None
                      else shared["latest_frame"].copy())
@@ -346,17 +342,17 @@ def main():
             time.sleep(0.001)
             continue
 
-        # Read LiDAR sectors
+        # read LiDAR sector risks
         lidar_sectors = read_lidar_sectors()            # [L,C,R] 0-1 risk
         if lidar_sectors is not None:
             hz_lidar.tick()
 
-        # Read ESP32 sensors — tick Hz on new data
+        # read ESP32 sensors and update rates on new samples
         tof_risks = read_tof_ground_risk(esp32, tof_baseline)  # [L,R] ground risk
         imu_data  = read_imu(esp32)                   # [ax,ay,az,gx,gy,gz]
         gps_data  = esp32.gps if esp32 is not None else None
 
-        # Continuous posture monitoring — suppress ToF when slouching
+        # monitor posture continuously and suppress ToF if user slouches
         if posture is not None:
             posture_changed = posture.update(imu_data)
             now = time.time()
@@ -380,7 +376,7 @@ def main():
                 hz_gps.tick()
                 prev_gps_seq = s
 
-        # Sensor fusion (LiDAR + MiDaS + YOLO → L/C/R)
+        # fuse LiDAR, MiDaS, and YOLO into L/C/R risks
         depth_normed    = normalize_depth(depth_map)
         midas_risks_vec = midas_sector_risks(depth_normed)
         yolo_obstacles  = scored_yolo_obstacles(yolo_results, depth_normed, FRAME_WIDTH)
@@ -388,27 +384,27 @@ def main():
                                             lidar_sectors=lidar_sectors)
         risks    = smoother.update(raw_risks)
 
-        # ToF → LB/RB risks (ground-level only)
+        # convert ToF to left-bottom and right-bottom ground risks
         tof_lb = tof_risks[0] if tof_risks else 0.0
         tof_rb = tof_risks[1] if tof_risks else 0.0
 
-        # 5-zone motor output: [LB, L, C, R, RB]
+        # five-zone motor output: [LB, L, C, R, RB]
         motor_raw = [tof_lb * 100.0, risks[0] * 100.0, risks[1] * 100.0,
                      risks[2] * 100.0, tof_rb * 100.0]
         if posture is not None and posture.tof_suppressed:
-            # Pulse all motors when posture is bad (3 Hz)
+            # pulse all motors at 3 Hz when posture is bad
             pulse_on = int(time.time() * 3) % 2 == 0
             motor_raw = [100, 100, 100, 100, 100] if pulse_on else [0, 0, 0, 0, 0]
         motor_vals = motor_limiter.limit(motor_raw)
 
-        # Send motor values to ESP32
+        # send motor values to ESP32
         if esp32 is not None:
             esp32.write_motor_values(motor_vals)
 
-        # Decision
+        # navigation decision
         decision = fsm.update(risks)
 
-        # Speak only object location in danger zone (no direction command speech)
+        # in danger, speak object location only
         danger_zone = max(risks) >= STOP_THRESHOLD
         if danger_zone:
             threat = _top_threat_phrase(
@@ -426,10 +422,10 @@ def main():
         else:
             last_danger_phrase = None
 
-        # Build 5-sector view for telemetry: [LB, L, C, R, RB]
+        # build five-sector telemetry view: [LB, L, C, R, RB]
         risks_5 = [tof_lb, risks[0], risks[1], risks[2], tof_rb]
 
-        # Visualization
+        # visualization
         if args.viz:
             vis = frame.copy()
             draw_yolo_boxes(vis, yolo_results, yolo_obstacles, depth_normed=depth_normed)
@@ -438,7 +434,7 @@ def main():
                                hz_tof.hz, hz_imu.hz, hz_gps.hz)
             _draw_pipeline_status(vis, hz_cam.hz, hz_yolo.hz, hz_midas.hz)
 
-            # FPS
+            # fps
             t_now = time.time()
             dt    = t_now - t_prev
             t_prev = t_now
@@ -461,7 +457,7 @@ def main():
                 stop_event.set()
                 break
 
-    # Cleanup
+    # cleanup
     stop_event.set()
     t_cap.join(timeout=1.0)
     t_inf.join(timeout=1.0)

@@ -18,7 +18,7 @@ FONT        = cv2.FONT_HERSHEY_SIMPLEX
 
 
 def proximity_color(prox):
-    """Smooth green -> yellow -> red gradient based on proximity 0-1."""
+    """Smooth green to yellow to red gradient for proximity 0-1."""
     prox = max(0.0, min(1.0, prox))
     if prox < 0.5:
         t = prox * 2.0
@@ -38,13 +38,13 @@ def command_color(command):
 
 
 def _midas_depth_color(prox):
-    """Red (close) -> Yellow (moderate) -> Green (far) based on MiDaS proximity 0-1."""
+    """Color by MiDaS proximity: red (close), yellow (mid), green (far)."""
     prox = max(0.0, min(1.0, prox))
     if prox > 0.75:
         # close: red
         return (0, 60, 255)
     elif prox > 0.45:
-        # moderate: yellow  (interpolate red -> yellow)
+        # moderate: yellow (interpolate red to yellow)
         t = (prox - 0.45) / 0.3
         return (0, int(200 - t * 140), int(255 - t * 0))
     else:
@@ -91,7 +91,7 @@ def build_telemetry_panel(width, decision, sector_risks, fsm_state, fps, motor_v
     if motor_values is None:
         motor_values = sector_risks
 
-    # Compact fixed-width columns tuned for 640 px video width.
+    # fixed-width columns tuned for 640 px video
     state_x = 10
     risk_x = 150
     motor_x = 350

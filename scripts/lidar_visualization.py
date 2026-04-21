@@ -4,10 +4,7 @@ import numpy as np
 
 
 def visualize_lidar():
-    """
-    Live LIDAR visualization using a polar plot.
-    Angle is theta, radius is distance in meters.
-    """
+    """Live LiDAR visualization on a polar plot."""
     lidar = Lidar()
     lidar.start()
     plt.ion()
@@ -15,7 +12,7 @@ def visualize_lidar():
     scatter = ax.scatter([], [], s=2, color="blue")
     ax.set_title("LIDAR Visualization")
 
-    # Draw rings every 1 meter
+    # draw rings every 1 meter
     for r in range(1, 11):
         ax.plot(
             np.linspace(0, 2 * np.pi, 360),

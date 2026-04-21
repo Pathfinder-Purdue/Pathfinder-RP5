@@ -100,7 +100,7 @@ def _try_reconnect():
     except Exception:
         logger.exception("USB rebind failed")
 
-    # find the new port (may have re-enumerated)
+    # find the new port if it re-enumerated
     import glob as _glob
     new_ports = sorted(_glob.glob("/dev/ttyUSB*"))
     new_port = new_ports[0] if new_ports else port
@@ -170,10 +170,10 @@ def _scanner_worker():
             except OSError as e:
                 io_error_count += 1
                 if io_error_count >= max_io_errors:
-                    logger.error("Serial I/O failed %d times, attempting reconnect …",
+                    logger.error("Serial I/O failed %d times, attempting reconnect ...",
                                  io_error_count)
                     if _try_reconnect():
-                        # Re-send scan command after reconnect
+                        # re-send the scan command after reconnect
                         try:
                             Request.send_request(_lidar._serial, scan_request)
                             _length, _mode = Response.parse_response_descriptor(
@@ -190,7 +190,7 @@ def _scanner_worker():
                 time.sleep(0.5)
 
             except Exception:
-                logger.exception("Error in scanner loop — retrying after short delay")
+                logger.exception("Error in scanner loop; retrying after short delay")
                 time.sleep(0.5)
 
     finally:

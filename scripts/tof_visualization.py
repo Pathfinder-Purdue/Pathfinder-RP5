@@ -18,7 +18,7 @@ BAUD = 115200
 
 
 def find_usb_serial_port():
-    # """Auto-detect the USB-to-UART converter port."""
+    # optional auto-detection code for USB UART port
     # ports = serial.tools.list_ports.comports()
     # usb_ports = [p for p in ports if "USB" in p.device or "ACM" in p.device]
     # if usb_ports:
@@ -75,12 +75,12 @@ def main():
     t = threading.Thread(target=reader_thread, args=(ser, tof_state, lock), daemon=True)
     t.start()
 
-    # Set up 3D bar chart
+    # set up 3D bar chart
     plt.ion()
     fig = plt.figure(figsize=(10, 7))
     ax = fig.add_subplot(111, projection='3d')
 
-    # Bar positions: 4x4 grid
+    # bar positions for a 4x4 grid
     xpos, ypos = np.meshgrid(np.arange(4), np.arange(4))
     xpos = xpos.flatten()
     ypos = ypos.flatten()
@@ -98,7 +98,7 @@ def main():
             colors = plt.cm.RdYlGn(1.0 - np.clip(dz / 4000.0, 0, 1))
             ax.bar3d(xpos, ypos, zpos, dx, dy, dz, color=colors, alpha=0.85)
 
-            # Label each bar with its index and value
+            # label each bar with its index and value
             for i in range(16):
                 ax.text(xpos[i] + dx / 2, ypos[i] + dy / 2, dz[i] + 40,
                         f"[{i}]\n{vals[i]}", ha='center', va='bottom', fontsize=7)
