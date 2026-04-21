@@ -211,6 +211,9 @@ def main():
         print("[integrated] WARNING -- ESP32 unavailable, ToF/IMU/GPS disabled")
         esp32 = None
 
+    # display variables
+    time_since_last_print = time.time()
+
     # runtime state
     fsm      = NavigationFSM()
     smoother = RiskSmoother()
@@ -227,6 +230,12 @@ def main():
     last_posture_prompt_ts = 0.0
     last_danger_phrase = None
     last_danger_phrase_ts = 0.0
+
+    # wait before starting calibration in headless mode for bootup
+    if not args.viz:
+        print("[integrated] Waiting 90 seconds before calibration ...")
+        speaker.say("System starting, 90 seconds until calibration")
+        time.sleep(90.0)
 
     # calibration period
     print("[integrated] Starting calibration ...")
@@ -424,6 +433,11 @@ def main():
 
         # build five-sector telemetry view: [LB, L, C, R, RB]
         risks_5 = [tof_lb, risks[0], risks[1], risks[2], tof_rb]
+
+        if time.time() - time_since_last_print >= 0.1:
+            print(f"[risks] LiDAR: L={risks[0]:.0%} C={risks[1]:.0%} R={risks[2]:.0%} | ToF LB={tof_lb:.0%} RB={tof_rb:.0%}")
+            print(f"[motor] LB={motor_vals[0]} L={motor_vals[1]} C={motor_vals[2]} R={motor_vals[3]} RB={motor_vals[4]}")
+            time_since_last_print = time.time()
 
         # visualization
         if args.viz:
