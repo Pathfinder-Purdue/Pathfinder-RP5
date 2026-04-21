@@ -13,6 +13,7 @@ import torch
 from indoor_nav.config import (
     CAMERA_ID, FRAME_WIDTH, FRAME_HEIGHT,
     YOLO_INTERVAL, MIDAS_INTERVAL,
+    STOP_THRESHOLD,
 )
 from indoor_nav.models import load_yolo, load_midas, run_yolo, run_midas
 from indoor_nav.sensors import (
@@ -34,15 +35,18 @@ from haptic_zones import HapticOutputLimiter
 # Text-to-speech for navigation decisions
 
 _SECTOR_NAMES = ["to your left", "ahead", "to your right"]
+_DANGER_OBJECT_PROX_THRESHOLD = 0.70
+_POSTURE_REPEAT_SECS = 2.0
+_DANGER_SPEECH_COOLDOWN_SECS = 1.5
 
 
-def _top_threat_phrase(yolo_obstacles, class_names):
+def _top_threat_phrase(yolo_obstacles, class_names, min_proximity=0.3):
     """Return e.g. 'Person ahead' for the closest YOLO obstacle, or None."""
     if not yolo_obstacles:
         return None
     # highest proximity = closest threat
     sector, prox, box = max(yolo_obstacles, key=lambda o: o[1])
-    if prox < 0.3:
+    if prox < min_proximity:
         return None
     label = class_names.get(int(box.cls[0]), "obstacle").capitalize()
     return f"{label} {_SECTOR_NAMES[sector]}"
@@ -224,7 +228,9 @@ def main():
     # Start TTS speaker
     speaker = Speaker()
     speaker.start()
-    last_spoken_command = None
+    last_posture_prompt_ts = 0.0
+    last_danger_phrase = None
+    last_danger_phrase_ts = 0.0
 
     # ── Calibration period ──
     print("[integrated] Starting calibration ...")
@@ -353,8 +359,10 @@ def main():
         # Continuous posture monitoring — suppress ToF when slouching
         if posture is not None:
             posture_changed = posture.update(imu_data)
-            if posture_changed and not posture.posture_ok:
+            now = time.time()
+            if not posture.posture_ok and (now - last_posture_prompt_ts) >= _POSTURE_REPEAT_SECS:
                 speaker.say("Straighten your posture")
+                last_posture_prompt_ts = now
             elif posture_changed and posture.posture_ok:
                 speaker.say("Posture restored")
 
@@ -400,14 +408,23 @@ def main():
         # Decision
         decision = fsm.update(risks)
 
-        # Speak navigation command on change
-        if decision.command != last_spoken_command:
-            threat = _top_threat_phrase(yolo_obstacles, yolo_model.names)
-            if threat:
-                speaker.say(f"{threat}. {decision.command}")
-            else:
-                speaker.say(decision.command)
-            last_spoken_command = decision.command
+        # Speak only object location in danger zone (no direction command speech)
+        danger_zone = max(risks) >= STOP_THRESHOLD
+        if danger_zone:
+            threat = _top_threat_phrase(
+                yolo_obstacles,
+                yolo_model.names,
+                min_proximity=_DANGER_OBJECT_PROX_THRESHOLD,
+            )
+            if threat is not None:
+                now = time.time()
+                should_repeat = (now - last_danger_phrase_ts) >= _DANGER_SPEECH_COOLDOWN_SECS
+                if threat != last_danger_phrase or should_repeat:
+                    speaker.say(threat)
+                    last_danger_phrase = threat
+                    last_danger_phrase_ts = now
+        else:
+            last_danger_phrase = None
 
         # Build 5-sector view for telemetry: [LB, L, C, R, RB]
         risks_5 = [tof_lb, risks[0], risks[1], risks[2], tof_rb]

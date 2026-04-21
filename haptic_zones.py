@@ -18,15 +18,15 @@ from indoor_nav.config import (
 # but no instantaneous current spike).
 MAX_MOTOR_SLEW_RATE = 300          # units per second
 NUM_ZONES   = 3
-MAX_ACTIVE_MOTORS = 2
+MAX_ACTIVE_MOTORS = 3
 
 #  HAPTIC MOTOR OUTPUT LIMITS
 # Raw vibration intent is produced in 0-100, then remapped before UART output.
 # 1) [0, MOTOR_INTENSITY_DEADZONE] -> 0 (deadzone)
 # 2) (MOTOR_INTENSITY_DEADZONE, 100] -> [MIN_MOTOR_INTENSITY, MAX_MOTOR_INTENSITY]
-MOTOR_INTENSITY_DEADZONE = 30.0
+MOTOR_INTENSITY_DEADZONE = 25.0
 MIN_MOTOR_INTENSITY = 5.0
-MAX_MOTOR_INTENSITY = 40.0
+MAX_MOTOR_INTENSITY = 50.0
 
 
 class HapticOutputLimiter:
